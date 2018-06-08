@@ -13,15 +13,11 @@
 # (Licensed under CC-BY)
 
 import torch
-import torch.optim as optim
 import torch.nn.functional as F
-
-from torch.utils.data.dataset import Dataset
-from torch.autograd import Variable
 
 class FFAttention(torch.nn.Module):
     def __init__(self, batch_size=10, T=10, D_in=2, D_out=1, hidden=100):
-        super(Attention, self).__init__()
+        super(FFAttention, self).__init__()
         # Net Config
         self.T = T
         self.batch_size = batch_size
