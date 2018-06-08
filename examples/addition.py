@@ -22,17 +22,20 @@
 # The goal is to predict the sum of the two values for which the second
 # dimension is 1:
 # x1 = 0.25 ; x2 = 0.54 in this case.
+import sys
+sys.path.append('./lstm_problems/lstm_problems')
+sys.path.append('..')
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data.dataset import Dataset
 
 import numpy as np
+import matplotlib.pyplot as plt
+plt.style.use('ggplot')
 
-import sys
-sys.path.append('..')
 from ff_attention import FFAttention
-import lstm_problems
+from lstm_problems import lstm_problems
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
@@ -165,6 +168,29 @@ def main():
             preds = flatten(outputs)
             gt = flatten(label_log)
             attentions = flatten(attention)
+    # Set to false to hide plots
+    show_results = True
+    if show_results is True:
+        plt.style.use('ggplot')
+        plt.figure(figsize=(15,10))
+        plt.subplot(3,1,1)
+        plt.plot(losses_train, label='Train')
+        plt.plot(losses_test, label='Test')
+        plt.title('Loss')
+        plt.legend()
+
+        plt.subplot(3,1,2)
+        preds_fl = flatten(preds)[:200]
+        gt_fl = gt[:200]
+        plt.bar(range(len(preds_fl)), preds_fl, alpha=0.5, label='Predicted', color='b')
+        plt.bar(range(len(gt_fl)), gt_fl, alpha=0.5, label='Truth', color='r')
+        plt.title('Sample predictions')
+        plt.legend()
+
+        plt.subplot(3,1,3)
+        plt.title('Error distribution')
+        plt.hist(np.subtract(gt_fl,preds_fl))
+        plt.show()
 
 if __name__ == '__main__':
     main()
