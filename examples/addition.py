@@ -9,8 +9,19 @@
 # Original work by Colin Raffel and Daniel P. Ellis
 # "Feed-Forward Networks with Attention Can
 # Solve Some Long-Term Memory Problems"
-# https://arxiv.org/abs/1512.08756
+# https://arxiv.org/abs/1512.08756 [1]
 # (Licensed under CC-BY)
+#
+#
+# The addition Problem is a sample problem for testing LSTMs
+# They are defined in the package [lstm_problems](https://github.com/craffel/lstm_problems)
+#
+# Problem: Let x be the following 2-D vector
+# [0.11 0.25 -0.32 ... 0.54 0.21]
+# [  0    1     0  ...   1    0 ]
+# The goal is to predict the sum of the two values for which the second
+# dimension is 1:
+# x1 = 0.25 ; x2 = 0.54 in this case.
 
 import torch
 import torch.nn.functional as F
@@ -74,31 +85,36 @@ class AdditionSequenceDataset(Dataset):
 
 
 def main():
-    device = torch.device('cpu')
+    """
+    Run experiment.
+    """
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     batch_size = 1000   # Number of samples in each batch
-    lr = 0.01        # Learning rate
-    n_seqs = 1000
-    T = 100
+    lr = 0.01           # Learning rate
+    n_seqs = 1000       # number of sequences to generate
+    T = 100             # Sequence length
 
+    # Create the model
     model = AdditionAttention(batch_size=batch_size, T=T)
 
     # calculate the number of batches per epoch
     batch_per_ep = n_seqs // batch_size
 
+    # Using the details from the paper [1]
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999))
 
-    # Define custom dataset
+    # Define training data
     seq_ds = AdditionSequenceDataset(T=T, n_seqs=n_seqs)
-    # Define data loader
+    # Define training data loader
     seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds,
                                                     batch_size=batch_size,
                                                     shuffle=True)
 
-    # Define custom dataset
+    # Define test data
     seq_ds_test = AdditionSequenceDataset(T=T, n_seqs=n_seqs)
-    # Define data loader
+    # Define test data loader
     test_seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds_test,
                                                           batch_size=batch_size,
                                                           shuffle=True)
