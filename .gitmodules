@@ -1,0 +1,3 @@
+[submodule "examples/lstm_problems"]
+	path = examples/lstm_problems
+	url = https://github.com/craffel/lstm_problems
