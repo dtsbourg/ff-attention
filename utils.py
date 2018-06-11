@@ -10,6 +10,7 @@
 #
 # Logger:
 # Contains some information about the state
+import numpy as np
 
 class AttentionState():
     def __init__(self, inputs, alphas, prediction, label):
