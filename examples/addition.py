@@ -45,23 +45,21 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 class AdditionAttention(FFAttention):
     def __init__(self, *args, **kwargs):
         super(AdditionAttention, self).__init__(*args, **kwargs)
-        self.layer1 = torch.nn.Linear(self.n_features, self.out_dim)
-        self.layer3 = torch.nn.Linear(self.n_features, self.hidden)
+        self.layer0 = torch.nn.Linear(self.n_features, self.hidden)
+        self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
+        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden)
         self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
 
     def embedding(self, x_t):
-        # Initial = identity
-        # h_t = f(x_t), f = id
-        return x_t
+        x_t = self.layer0(x_t)
+        return F.leaky_relu(x_t)
 
     def activation(self, h_t):
-        batch_norm = torch.nn.BatchNorm1d(self.n_features)
-        return F.selu(self.layer1(h_t))
+        return F.leaky_relu(self.layer1(h_t))
 
     def out(self, c):
-        c_= c.view(self.batch_size, self.out_dim, self.n_features)
-        x = F.selu(self.layer3(c_))
-        return F.tanh(self.out_layer(x))
+        x = F.leaky_relu(self.layer2(c))
+        return F.leaky_relu(self.out_layer(x))
 
 class AdditionSequenceDataset(Dataset):
     def __init__(self, T, n_seqs):
@@ -98,8 +96,8 @@ def main():
 
     logger = AttentionLog()
 
-    batch_size = 1000   # Number of samples in each batch
-    lr = 0.01           # Learning rate
+    batch_size = 100   # Number of samples in each batch
+    lr = 0.003          # Learning rate
     n_seqs = 1000       # number of sequences to generate
     T = 100             # Sequence length
 
