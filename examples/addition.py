@@ -125,7 +125,7 @@ def main():
                                                           batch_size=batch_size,
                                                           shuffle=True)
 
-    epoch_num = 1000    # Number of epochs to train the network
+    epoch_num = 200    # Number of epochs to train the network
     preds = []; gt = []; attentions = [];
     for ep in range(epoch_num):  # epochs loop
         batch_losses = [];
