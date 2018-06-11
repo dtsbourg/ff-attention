@@ -65,8 +65,8 @@ class FFAttention(torch.nn.Module):
         Step 3:
         Compute the probabilities alpha_t
         """
-        softmax = torch.nn.Softmax(dim=0)
-        alphas = softmax(e_t).view(self.batch_size, self.out_dim, self.T).repeat(1, self.n_features, 1)
+        softmax = torch.nn.Softmax(dim=1)
+        alphas = softmax(e_t).view(self.batch_size, self.out_dim, self.T)
         return alphas
 
     def context(self, alpha_t, x_t):
