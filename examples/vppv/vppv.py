@@ -41,13 +41,17 @@ module_seperator = lambda x: np.asarray([x[i:i+4] for i in range(0,len(x),4)])
 class VPAttention(FFAttention):
     def __init__(self, *args, **kwargs):
         super(VPAttention, self).__init__(*args, **kwargs)
-        self.layer0 = torch.nn.Linear(self.n_features, self.hidden)
+        self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
+        self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
+        self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
         self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
         self.layer2 = torch.nn.Linear(self.out_dim, self.hidden)
         self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
 
     def embedding(self, x_t):
-        x_t = self.layer0(x_t)
+        x_t = F.leaky_relu(self.layer0a(x_t))
+        x_t = F.leaky_relu(self.layer0b(x_t))
+        x_t = self.layer0c(x_t)
         return F.leaky_relu(x_t)
 
     def activation(self, h_t):
@@ -114,8 +118,8 @@ def main():
         scaler_pv = joblib.load('scaler_pv.dump')
 
     batch_size = 100    # Number of samples in each batch
-    lr = 0.005          # Learning rate
-    n_seqs = 5000       # number of sequences == number of samples
+    lr = 0.003          # Learning rate
+    n_seqs = 2500       # number of sequences == number of samples
     T = 52              # Sequence length == number of modules in our case
     D_in = 4            # 4 modules per sensor
 
@@ -123,7 +127,7 @@ def main():
     vp_module_readouts = vp_module_readouts[:n_seqs,:]
 
     # Create the model
-    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=208)
+    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=104)
 
     # calculate the number of batches per epoch
     batch_per_ep = n_seqs // batch_size
@@ -146,7 +150,7 @@ def main():
                                                           batch_size=batch_size,
                                                           shuffle=True)
 
-    epoch_num = 2000    # Number of epochs to train the network
+    epoch_num = 2500    # Number of epochs to train the network
     preds = []; gt = [];
     for ep in range(epoch_num):  # epochs loop
         batch_losses = [];
@@ -195,7 +199,7 @@ def main():
             'state_dict': model.state_dict(),
             'optimizer' : optimizer.state_dict(),
             }
-            uid = '2018-06-11-16-01'
+            uid = '2018-06-11-17-44-(104_2k5eps)'
             torch.save(save_state, 'vppv_model_best_epoch'+uid+'.pth')
 
     # Set to false to hide plots
@@ -211,23 +215,26 @@ def main():
 
         plt.subplot(3,1,2)
 
-        preds_fl = scaler_pv.inverse_transform(logger.attention_state.prediction[:200].reshape(-1, 1))
-        gt_fl = np.round(scaler_pv.inverse_transform(logger.attention_state.label[:200].reshape(-1, 1)))
+        preds_fl = scaler_pv.inverse_transform(logger.attention_state.prediction.reshape(-1, 1))
+        gt_fl = np.round(scaler_pv.inverse_transform(logger.attention_state.label.reshape(-1, 1)))
 
-        plt.bar(range(200), preds_fl[:,0], alpha=0.5, label='Predicted', color='b')
-        #plt.bar(range(200), np.round(preds_fl[:,0]), alpha=0.5, label='Rounded', color='g')
-        plt.bar(range(200), gt_fl[:,0], alpha=0.5, label='Truth', color='r')
+        sample = 200
+
+        plt.bar(range(sample), preds_fl[:sample,0], alpha=0.5, label='Predicted', color='b')
+        #plt.bar(range(200), np.round(preds_fl[:200,0]), alpha=0.5, label='Rounded', color='g')
+        plt.bar(range(sample), gt_fl[:sample,0], alpha=0.5, label='Truth', color='r')
         plt.title('Sample predictions')
         plt.legend()
 
         plt.subplot(3,1,3)
         errs = np.subtract(gt_fl, preds_fl)
         errs_rounded = np.subtract(gt_fl, np.round(preds_fl))
+
         plt.hist(errs, label='Regression Error', alpha=0.5)
         plt.hist(errs_rounded, label='Rounded Error', alpha=0.5)
         mu_str = str(np.around(np.mean(errs),2)); std_str = str(np.around(np.std(errs),2));
         mu_rd_str = str(np.around(np.mean(errs_rounded),2)); std_rd_str = str(np.around(np.std(errs_rounded),2));
-        plt.title('Error distribution (µ='+mu_str+'; σ='+std_str+')'+'(µ_{r}='+mu_rd_str+'; σ_{r}='+std_rd_str+')')
+        plt.title('Error distribution ($\mu$='+mu_str+'; $\sigma$='+std_str+')'+'($\mu_{r}$='+mu_rd_str+'; $\sigma_{r}$='+std_rd_str+')')
         plt.legend()
 
         n = 10
