@@ -126,8 +126,14 @@ def main():
     npvs = npvs[:n_seqs]
     vp_module_readouts = vp_module_readouts[:n_seqs,:]
 
-    # Create the model
+    # Create or load the model
     model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=104)
+
+    load_model = True
+    if load_model is True:
+        model_path = 'vppv_model_best_epoch2018-06-11-17-44-(104_2k5eps).pth'
+        checkpoint = torch.load(model_path)
+        model.load_state_dict(checkpoint['state_dict'])
 
     # calculate the number of batches per epoch
     batch_per_ep = n_seqs // batch_size
@@ -135,6 +141,9 @@ def main():
     # Using the details from the paper [1]
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999))
+
+    if load_model is True:
+        optimizer.load_state_dict(checkpoint['optimizer'])
 
     # Define training data
     seq_ds = VPSequenceDataset(vp_module_readouts, npvs)
@@ -153,6 +162,8 @@ def main():
     epoch_num = 2500    # Number of epochs to train the network
     preds = []; gt = [];
     for ep in range(epoch_num):  # epochs loop
+        if load_model is True: # Skip training if pre-trained model is loaded
+            break
         batch_losses = [];
         for batch_idx, data in enumerate(seq_dataset_loader): # batches loop
             features, labels = data
@@ -201,6 +212,21 @@ def main():
             }
             uid = '2018-06-11-17-44-(104_2k5eps)'
             torch.save(save_state, 'vppv_model_best_epoch'+uid+'.pth')
+
+    if load_model is True:
+        batch_losses = []; outputs = []; attention = []; label_log = [];
+        for batch_idx, data in enumerate(test_seq_dataset_loader):
+            features, labels = data
+            output, alphas = model(features, training=False)
+
+            outputs.append(flatten(output.tolist()))
+            attention.append(alphas.tolist())
+            label_log.append(labels.tolist())
+
+            loss = criterion(output.view(-1,1), labels.view(-1,1).float())
+            batch_losses.append(loss.data.item())
+        logger.losses['test'].append(np.mean(batch_losses))
+        logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
 
     # Set to false to hide plots
     show_results = True
