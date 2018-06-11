@@ -38,9 +38,8 @@ plt.style.use('ggplot')
 
 from ff_attention import FFAttention
 from lstm_problems import lstm_problems
-from logger import AttentionLog, AttentionState
+from utils import *
 
-flatten = lambda l: [item for sublist in l for item in sublist]
 
 class AdditionAttention(FFAttention):
     def __init__(self, *args, **kwargs):

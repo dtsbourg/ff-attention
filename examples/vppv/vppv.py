@@ -32,11 +32,7 @@ plt.style.use('ggplot')
 
 from ff_attention import FFAttention
 from lstm_problems import lstm_problems
-from logger import AttentionLog, AttentionState
-
-flatten = lambda l: np.asarray([item for sublist in l for item in sublist])
-module_seperator = lambda x: np.asarray([x[i:i+4] for i in range(0,len(x),4)])
-
+from utils import *
 
 class VPAttention(FFAttention):
     def __init__(self, *args, **kwargs):
