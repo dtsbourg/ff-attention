@@ -263,20 +263,23 @@ def main():
         plt.title('Error distribution ($\mu$='+mu_str+'; $\sigma$='+std_str+')'+'($\mu_{r}$='+mu_rd_str+'; $\sigma_{r}$='+std_rd_str+')')
         plt.legend()
 
-        n = 10
+        n = 10; start_idx = 10;
         plt.figure(2,figsize=(10,n+1))
-        attscaler = MinMaxScaler()
 
         for i in range(n):
-            sequence = pd.DataFrame(logger.attention_state.inputs[i].tolist())
-            sequence['attention'] = logger.attention_state.alphas[i][0].tolist()
+            sequence = pd.DataFrame(logger.attention_state.inputs[i+start_idx].tolist())
+            attscaler = MinMaxScaler(feature_range=(np.min(np.min(sequence)),np.max(np.max(sequence))))
+            sequence['attention'] = logger.attention_state.alphas[i+start_idx][0].tolist()
             sequence['attention'] = attscaler.fit_transform(sequence['attention'].values.reshape(-1,1))
 
             plt.subplot(n,1,i+1)
-            predval = np.round(preds_fl[i][0])
-            gtval = np.round(gt_fl[i][0])
-            plt.title('Attention map for sequence #'+str(i)+'; pred=' + str(int(predval))+'; gt='+str(int(gtval)))
+
+            predval = np.round(preds_fl[i+start_idx][0])
+            gtval = np.round(gt_fl[i+start_idx][0])
+            plt.title('Attention map for sequence #'+str(i+start_idx)+'; pred=' + str(int(predval))+'; gt='+str(int(gtval)))
+
             plt.imshow(sequence.transpose(), interpolation='nearest')
+
             plt.grid()
             plt.yticks([0,1,2,3,4], ['Module #1', 'Module #2', 'Module #3', 'Module #4', 'Attention'])
             plt.colorbar(aspect=5)
