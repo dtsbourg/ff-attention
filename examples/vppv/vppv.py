@@ -221,11 +221,11 @@ def main():
         errs = np.subtract(gt_fl, preds_fl)
         plt.title('Error distribution (µ='+str(np.around(np.mean(errs),2))+ '; σ='+ str(np.around(np.std(errs),2))+')')
         plt.hist(errs)
-        #plt.show()
 
         n = 10
         plt.figure(2,figsize=(10,n+1))
         attscaler = MinMaxScaler()
+
         for i in range(n):
             sequence = pd.DataFrame(logger.attention_state.inputs[i].tolist())
             sequence['attention'] = logger.attention_state.alphas[i][0].tolist()
@@ -237,7 +237,8 @@ def main():
             plt.title('Attention map for sequence #'+str(i)+'; pred=' + str(int(predval))+'; gt='+str(int(gtval)))
             plt.imshow(sequence.transpose(), interpolation='nearest')
             plt.grid()
-            plt.yticks([])
+            plt.yticks([0,1,2,3,4], ['Module #1', 'Module #2', 'Module #3', 'Module #4', 'Attention'])
+            plt.colorbar(aspect=5)
         plt.tight_layout()
         plt.show()
 
