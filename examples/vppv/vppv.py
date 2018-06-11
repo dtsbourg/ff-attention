@@ -40,25 +40,21 @@ module_seperator = lambda x: np.asarray([x[i:i+4] for i in range(0,len(x),4)])
 class VPAttention(FFAttention):
     def __init__(self, *args, **kwargs):
         super(VPAttention, self).__init__(*args, **kwargs)
-        self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
-        self.layer0b = torch.nn.Linear(self.hidden, self.n_features)
-        self.layer1 = torch.nn.Linear(self.n_features, self.out_dim)
-        self.layer3 = torch.nn.Linear(self.n_features, self.hidden)
+        self.layer0 = torch.nn.Linear(self.n_features, self.hidden)
+        self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
+        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden)
         self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
 
     def embedding(self, x_t):
-        #x_t = self.layer0a(x_t)
-        #x_t = F.leaky_relu(self.layer0b(x_t))
-        return x_t
+        x_t = self.layer0(x_t)
+        return F.leaky_relu(x_t)
 
     def activation(self, h_t):
-        #batch_norm = torch.nn.BatchNorm1d(self.n_features)
         return F.leaky_relu(self.layer1(h_t))
 
     def out(self, c):
-        c_= c.view(self.batch_size, self.out_dim, self.n_features)
-        x = F.leaky_relu(self.layer3(c_))
-        return self.out_layer(x)
+        x = F.leaky_relu(self.layer2(c))
+        return F.leaky_relu(self.out_layer(x))
 
 class VPSequenceDataset(Dataset):
     def __init__(self, vp_module_readouts, npvs):
@@ -97,7 +93,7 @@ def main():
             dfvp[i] = list(map(float,vp_occ[i]))
         dfvp = dfvp.transpose()
         # Scale data
-        scaler_vp = StandardScaler()
+        scaler_vp = MinMaxScaler()
         dfvp = scaler_vp.fit_transform(dfvp)
 
         joblib.dump(scaler_vp, 'scaler_vp.dump')
@@ -116,17 +112,17 @@ def main():
         vp_module_readouts = joblib.load('vp_module_readouts.dump')
         scaler_pv = joblib.load('scaler_pv.dump')
 
-    batch_size = 100    # Number of samples in each batch
-    lr = 0.01           # Learning rate
-    n_seqs = 9000       # number of sequences == number of samples
+    batch_size = 200    # Number of samples in each batch
+    lr = 0.003          # Learning rate
+    n_seqs = 1000       # number of sequences == number of samples
     T = 52              # Sequence length == number of modules in our case
     D_in = 4            # 4 modules per sensor
 
-    npvs = npvs[:9000]
-    vp_module_readouts = vp_module_readouts[:9000,:]
+    npvs = npvs[:n_seqs]
+    vp_module_readouts = vp_module_readouts[:n_seqs,:]
 
     # Create the model
-    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=208)
+    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=100)
 
     # calculate the number of batches per epoch
     batch_per_ep = n_seqs // batch_size
@@ -134,23 +130,22 @@ def main():
     # Using the details from the paper [1]
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999))
-    #optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 
     # Define training data
     seq_ds = VPSequenceDataset(vp_module_readouts, npvs)
     # Define training data loader
     seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds,
                                                     batch_size=batch_size,
-                                                    shuffle=False)
+                                                    shuffle=True)
 
     # Define test data
     seq_ds_test = VPSequenceDataset(vp_module_readouts, npvs)
     # Define test data loader
     test_seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds_test,
                                                           batch_size=batch_size,
-                                                          shuffle=False)
+                                                          shuffle=True)
 
-    epoch_num = 1    # Number of epochs to train the network
+    epoch_num = 500    # Number of epochs to train the network
     preds = []; gt = [];
     for ep in range(epoch_num):  # epochs loop
         batch_losses = [];
@@ -229,7 +224,7 @@ def main():
         for i in range(n):
             sequence = pd.DataFrame(logger.attention_state.inputs[i].tolist())
             sequence['attention'] = logger.attention_state.alphas[i][0].tolist()
-            sequence['attention'] = attscaler.fit_transform(sequence['attention'].values.reshape(-1,1))
+            #sequence['attention'] = attscaler.fit_transform(sequence['attention'].values.reshape(-1,1))
 
             plt.subplot(n,1,i+1)
             predval = np.round(preds_fl[i][0])
