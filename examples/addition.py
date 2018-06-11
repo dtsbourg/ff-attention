@@ -31,11 +31,14 @@ import torch.nn.functional as F
 from torch.utils.data.dataset import Dataset
 
 import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 
 from ff_attention import FFAttention
 from lstm_problems import lstm_problems
+from logger import AttentionLog, AttentionState
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
@@ -93,6 +96,8 @@ def main():
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    logger = AttentionLog()
+
     batch_size = 1000   # Number of samples in each batch
     lr = 0.01           # Learning rate
     n_seqs = 1000       # number of sequences to generate
@@ -123,8 +128,7 @@ def main():
                                                           shuffle=True)
 
     epoch_num = 1000    # Number of epochs to train the network
-    losses_train = [];
-    losses_test = []; preds = []; gt = []; attentions = [];
+    preds = []; gt = []; attentions = [];
     for ep in range(epoch_num):  # epochs loop
         batch_losses = [];
         for batch_idx, data in enumerate(seq_dataset_loader): # batches loop
@@ -145,7 +149,7 @@ def main():
         if not ep % 100:
             print('[TRAIN] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
 
-        losses_train.append(np.mean(batch_losses))
+        logger.losses['train'].append(np.mean(batch_losses))
 
         batch_losses = []; outputs = []; attention = []; label_log = [];
         for batch_idx, data in enumerate(test_seq_dataset_loader):
@@ -162,26 +166,27 @@ def main():
         if not ep % 100:
             print('[TEST] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
 
-        losses_test.append(np.mean(batch_losses))
+        logger.losses['test'].append(np.mean(batch_losses))
 
-        if np.mean(batch_losses) == np.min(losses_test):
-            preds = flatten(outputs)
-            gt = flatten(label_log)
-            attentions = flatten(attention)
+        if np.mean(batch_losses) == np.min(logger.losses['test']):
+            logger.best_epoch = ep
+            logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+
     # Set to false to hide plots
     show_results = True
     if show_results is True:
         plt.style.use('ggplot')
         plt.figure(figsize=(15,10))
         plt.subplot(3,1,1)
-        plt.plot(losses_train, label='Train')
-        plt.plot(losses_test, label='Test')
+        plt.plot(logger.losses['train'], label='Train')
+        plt.plot(logger.losses['test'], label='Test')
         plt.title('Loss')
         plt.legend()
 
         plt.subplot(3,1,2)
-        preds_fl = flatten(preds)[:200]
-        gt_fl = gt[:200]
+        preds_fl = flatten(logger.attention_state.prediction[:200])
+        gt_fl = logger.attention_state.label[:200]
+
         plt.bar(range(len(preds_fl)), preds_fl, alpha=0.5, label='Predicted', color='b')
         plt.bar(range(len(gt_fl)), gt_fl, alpha=0.5, label='Truth', color='r')
         plt.title('Sample predictions')
@@ -190,6 +195,22 @@ def main():
         plt.subplot(3,1,3)
         plt.title('Error distribution')
         plt.hist(np.subtract(gt_fl,preds_fl))
+
+
+        n = 4
+        plt.figure(figsize=(15,n+1))
+        scaler = MinMaxScaler()
+        for i in range(n):
+            sequence = pd.DataFrame(logger.attention_state.inputs[i].tolist())
+            sequence['attention'] = logger.attention_state.alphas[i][0].tolist()
+            sequence['attention'] = scaler.fit_transform(sequence['attention'].values.reshape(-1,1))
+            plt.subplot(n,1,i+1)
+            plt.title('Attention map for sequence #'+str(i)+'; pred='+str(np.around(preds_fl[i],2))+' gt='+str(np.around(gt_fl[i],2)))
+            plt.imshow(sequence.transpose(), interpolation='nearest')
+            plt.grid()
+            plt.yticks([0,1,2], ['In #1', 'In #2', 'Attention'])
+            plt.colorbar(aspect=5)
+        plt.tight_layout()
         plt.show()
 
 if __name__ == '__main__':
