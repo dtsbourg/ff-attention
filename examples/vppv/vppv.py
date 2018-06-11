@@ -37,6 +37,7 @@ from logger import AttentionLog, AttentionState
 flatten = lambda l: np.asarray([item for sublist in l for item in sublist])
 module_seperator = lambda x: np.asarray([x[i:i+4] for i in range(0,len(x),4)])
 
+
 class VPAttention(FFAttention):
     def __init__(self, *args, **kwargs):
         super(VPAttention, self).__init__(*args, **kwargs)
@@ -93,7 +94,7 @@ def main():
             dfvp[i] = list(map(float,vp_occ[i]))
         dfvp = dfvp.transpose()
         # Scale data
-        scaler_vp = MinMaxScaler()
+        scaler_vp = StandardScaler()
         dfvp = scaler_vp.fit_transform(dfvp)
 
         joblib.dump(scaler_vp, 'scaler_vp.dump')
@@ -112,9 +113,9 @@ def main():
         vp_module_readouts = joblib.load('vp_module_readouts.dump')
         scaler_pv = joblib.load('scaler_pv.dump')
 
-    batch_size = 200    # Number of samples in each batch
-    lr = 0.003          # Learning rate
-    n_seqs = 1000       # number of sequences == number of samples
+    batch_size = 100    # Number of samples in each batch
+    lr = 0.005          # Learning rate
+    n_seqs = 5000       # number of sequences == number of samples
     T = 52              # Sequence length == number of modules in our case
     D_in = 4            # 4 modules per sensor
 
@@ -122,7 +123,7 @@ def main():
     vp_module_readouts = vp_module_readouts[:n_seqs,:]
 
     # Create the model
-    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=100)
+    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=208)
 
     # calculate the number of batches per epoch
     batch_per_ep = n_seqs // batch_size
@@ -145,7 +146,7 @@ def main():
                                                           batch_size=batch_size,
                                                           shuffle=True)
 
-    epoch_num = 500    # Number of epochs to train the network
+    epoch_num = 2000    # Number of epochs to train the network
     preds = []; gt = [];
     for ep in range(epoch_num):  # epochs loop
         batch_losses = [];
@@ -189,6 +190,13 @@ def main():
         if np.mean(batch_losses) == np.min(logger.losses['test']):
             logger.best_epoch = ep
             logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+            save_state = {
+            'epoch': ep,
+            'state_dict': model.state_dict(),
+            'optimizer' : optimizer.state_dict(),
+            }
+            uid = '2018-06-11-16-01'
+            torch.save(save_state, 'vppv_model_best_epoch'+uid+'.pth')
 
     # Set to false to hide plots
     show_results = True
@@ -214,8 +222,13 @@ def main():
 
         plt.subplot(3,1,3)
         errs = np.subtract(gt_fl, preds_fl)
-        plt.title('Error distribution (µ='+str(np.around(np.mean(errs),2))+ '; σ='+ str(np.around(np.std(errs),2))+')')
-        plt.hist(errs)
+        errs_rounded = np.subtract(gt_fl, np.round(preds_fl))
+        plt.hist(errs, label='Regression Error', alpha=0.5)
+        plt.hist(errs_rounded, label='Rounded Error', alpha=0.5)
+        mu_str = str(np.around(np.mean(errs),2)); std_str = str(np.around(np.std(errs),2));
+        mu_rd_str = str(np.around(np.mean(errs_rounded),2)); std_rd_str = str(np.around(np.std(errs_rounded),2));
+        plt.title('Error distribution (µ='+mu_str+'; σ='+std_str+')'+'(µ_{r}='+mu_rd_str+'; σ_{r}='+std_rd_str+')')
+        plt.legend()
 
         n = 10
         plt.figure(2,figsize=(10,n+1))
@@ -224,7 +237,7 @@ def main():
         for i in range(n):
             sequence = pd.DataFrame(logger.attention_state.inputs[i].tolist())
             sequence['attention'] = logger.attention_state.alphas[i][0].tolist()
-            #sequence['attention'] = attscaler.fit_transform(sequence['attention'].values.reshape(-1,1))
+            sequence['attention'] = attscaler.fit_transform(sequence['attention'].values.reshape(-1,1))
 
             plt.subplot(n,1,i+1)
             predval = np.round(preds_fl[i][0])
