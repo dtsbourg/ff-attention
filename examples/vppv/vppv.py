@@ -38,25 +38,41 @@ from utils import *
 class VPAttention(FFAttention):
     def __init__(self, *args, **kwargs):
         super(VPAttention, self).__init__(*args, **kwargs)
+        self.dropout0a = torch.nn.Dropout(p=0.2)
         self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
+        self.dropout0b = torch.nn.Dropout(p=0.2)
         self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
+        self.dropout0c = torch.nn.Dropout(p=0.2)
         self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
+        self.dropout1 = torch.nn.Dropout(p=0.2)
         self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
-        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden)
-        self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
+        self.dropout2 = torch.nn.Dropout(p=0.2)
+        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden // 2)
+        self.out_layer = torch.nn.Linear(self.hidden // 2, self.out_dim)
 
     def embedding(self, x_t):
         x_t = F.leaky_relu(self.layer0a(x_t))
+        if self.training:
+            x_t = self.dropout0a(x_t)
         x_t = F.leaky_relu(self.layer0b(x_t))
-        x_t = self.layer0c(x_t)
-        return F.leaky_relu(x_t)
+        if self.training:
+            x_t = self.dropout0b(x_t)
+        x_t = F.leaky_relu(self.layer0c(x_t))
+        if self.training:
+            x_t = self.dropout0c(x_t)
+        return x_t
 
     def activation(self, h_t):
-        return F.leaky_relu(self.layer1(h_t))
+        h_t = F.leaky_relu(self.layer1(h_t))
+        if self.training:
+            h_t = self.dropout1(h_t)
+        return h_t
 
     def out(self, c):
-        x = F.leaky_relu(self.layer2(c))
-        return F.leaky_relu(self.out_layer(x))
+        c = F.leaky_relu(self.layer2(c))
+        if self.training:
+            c = self.dropout2(c)
+        return F.leaky_relu(self.out_layer(c))
 
 class VPSequenceDataset(Dataset):
     def __init__(self, vp_module_readouts, npvs):
@@ -89,7 +105,6 @@ def data_loader(cache=True):
         scaler_pv = StandardScaler()
         npvs = scaler_pv.fit_transform(np.asarray(dfpv['EventpRecVertexPrimary']).reshape(-1,1))
         joblib.dump(scaler_pv, SCALER_CACHE)
-        vp_module_readouts = np.asarray([module_seperator(_) for _ in dfvp])
 
         # Load VP sensors
         dfvp = pd.DataFrame(dtype=float)
@@ -99,6 +114,7 @@ def data_loader(cache=True):
         # Scale
         scaler_vp = StandardScaler()
         dfvp = scaler_vp.fit_transform(dfvp)
+        vp_module_readouts = np.asarray([module_seperator(_) for _ in dfvp])
 
         # Cache data
         joblib.dump(npvs, NPVS_CACHE)
@@ -183,20 +199,18 @@ def main():
     npvs, vp_module_readouts, scaler_pv = data_loader()
 
     # Config
-    load_model = True
-    uid = '2018-06-11-17-44-(104_2k5eps)'
+    load_model = False
+    uid = '2018-06-11-17-44-(104_2k5eps)_test_fix'
     MODEL_PATH = 'vppv_model_best_epoch' + uid + '.pth'
 
     epoch_num = 2500                    # Number of epochs to train the network
     batch_size = 100                    # Number of samples in each batch
     lr = 0.003                          # Learning rate
-    n_seqs = 2500                       # number of sequences == number of samples
+    n_seqs = 9000                       # number of sequences == number of samples
     T = vp_module_readouts.shape[1]     # Sequence length == number of modules in our case
     D_in = vp_module_readouts.shape[2]  # 4 modules per sensor
     D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
     D_hidden = 104                      # Hidden dimension
-
-    batch_per_ep = n_seqs // batch_size # calculate the number of batches per epoch
 
     # Subsample data
     npvs = npvs[:n_seqs]
@@ -210,19 +224,26 @@ def main():
 
     # Using the details from the paper [1] for optimizer
     criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999))
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999), weight_decay=1e-5)
     if load_model is True:
         optimizer.load_state_dict(checkpoint['optimizer'])
 
+    tt_ratio = .5
+    train_idx = np.random.uniform(0, 1, len(npvs)) <= tt_ratio
+
+    batch_per_ep = n_seqs // batch_size # calculate the number of batches per epoch
+    batch_per_ep_tr = int(batch_per_ep * tt_ratio)
+    batch_per_ep_te = batch_per_ep - batch_per_ep_tr
+
     # Define training data
-    seq_ds = VPSequenceDataset(vp_module_readouts, npvs)
+    seq_ds = VPSequenceDataset(vp_module_readouts[train_idx], npvs[train_idx])
     # Define training data loader
     seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds,
                                                     batch_size=batch_size,
                                                     shuffle=True)
 
     # Define test data
-    seq_ds_test = VPSequenceDataset(vp_module_readouts, npvs)
+    seq_ds_test = VPSequenceDataset(vp_module_readouts[~train_idx], npvs[~train_idx])
     # Define test data loader
     test_seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds_test,
                                                           batch_size=batch_size,
@@ -234,6 +255,9 @@ def main():
             break
         batch_losses = [];
         for batch_idx, data in enumerate(seq_dataset_loader): # batches loop
+            if batch_idx == batch_per_ep_tr - 1:
+                break
+
             features, labels = data
 
             # Reset gradients
@@ -249,12 +273,14 @@ def main():
             optimizer.step()                # update the weights
 
         if not ep % 5:
-            print('[TRAIN] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
+            print('[TRAIN] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep_tr), 'loss: ', loss.data.item())
 
         logger.losses['train'].append(np.mean(batch_losses))
 
         batch_losses = []; outputs = []; attention = []; label_log = [];
         for batch_idx, data in enumerate(test_seq_dataset_loader):
+            if batch_idx == batch_per_ep_te - 1:
+                break
             features, labels = data
             output, alphas = model(features, training=False)
 
@@ -266,7 +292,7 @@ def main():
             batch_losses.append(loss.data.item())
 
         if not ep % 5:
-            print('[TEST] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
+            print('[TEST] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep_te), 'loss: ', loss.data.item())
 
         logger.losses['test'].append(np.mean(batch_losses))
 
@@ -293,6 +319,10 @@ def main():
 
             loss = criterion(output.view(-1,1), labels.view(-1,1).float())
             batch_losses.append(loss.data.item())
+
+            if batch_idx == batch_per_ep_te - 1:
+                break
+
         logger.losses['test'].append(np.mean(batch_losses))
         logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
 
