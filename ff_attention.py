@@ -87,6 +87,7 @@ class FFAttention(torch.nn.Module):
         """
         Forward pass for the Feed Forward Attention network.
         """
+        self.training = training
         x = self.embedding(x)
         x = self.activation(x)
         alpha = self.attention(x)
