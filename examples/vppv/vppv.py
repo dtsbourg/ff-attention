@@ -70,48 +70,53 @@ class VPSequenceDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+def data_loader(cache=True):
+    # Cache config
+    NPVS_CACHE = 'npvs.dump'
+    VP_CACHE = 'vp_module_readouts.dump'
+    SCALER_CACHE = 'scaler_pv.dump'
+    # Raw Bank Sizes (incl. number of PVs)
+    npvs_file  = 'data/minbias10.npy'
+    # Contains the occupancies for every VP sensor
+    VP_file  = 'data/VP_occupancies_minbias10.npy'
+
+    if cache == False:
+        # Load PVs
+        dfpv = pd.DataFrame(np.load(npvs_file))
+        vp_occ = list(map(np.array, np.load(VP_file)))
+        # Scale
+        scaler_pv = StandardScaler()
+        npvs = scaler_pv.fit_transform(np.asarray(dfpv['EventpRecVertexPrimary']).reshape(-1,1))
+        joblib.dump(scaler_pv, SCALER_CACHE)
+        vp_module_readouts = np.asarray([module_seperator(_) for _ in dfvp])
+
+        # Load VP sensors
+        dfvp = pd.DataFrame(dtype=float)
+        for i in range(len(vp_occ[:-1])):
+            dfvp[i] = list(map(float,vp_occ[i]))
+        dfvp = dfvp.transpose()
+        # Scale
+        scaler_vp = StandardScaler()
+        dfvp = scaler_vp.fit_transform(dfvp)
+
+        # Cache data
+        joblib.dump(npvs, NPVS_CACHE)
+        joblib.dump(vp_module_readouts, VP_CACHE)
+    else:
+        npvs = joblib.load(NPVS_CACHE)
+        vp_module_readouts = joblib.load(VP_CACHE)
+        scaler_pv = joblib.load(SCALER_CACHE)
+
+    return npvs, vp_module_readouts, scaler_pv
+
 
 def main():
     """
     Run experiment.
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
     logger = AttentionLog()
-
-    cache = True
-    if cache == False:
-        # Load data
-        npvs_file = 'data/minbias10.npy'
-        # Contains the occupancies for every VP sensor
-        VP_file  = 'data/VP_occupancies_minbias10.npy'
-
-        dfpv = pd.DataFrame(np.load(npvs_file))
-
-        vp_occ = list(map(np.array, np.load(VP_file)))
-        dfvp = pd.DataFrame(dtype=float)
-        for i in range(len(vp_occ[:-1])):
-            dfvp[i] = list(map(float,vp_occ[i]))
-        dfvp = dfvp.transpose()
-        # Scale data
-        scaler_vp = StandardScaler()
-        dfvp = scaler_vp.fit_transform(dfvp)
-
-        joblib.dump(scaler_vp, 'scaler_vp.dump')
-
-        # Create data
-        scaler_pv = StandardScaler()
-        npvs = scaler_pv.fit_transform(np.asarray(dfpv['EventpRecVertexPrimary']).reshape(-1,1))
-        joblib.dump(scaler_pv, 'scaler_pv.dump')
-        vp_module_readouts = np.asarray([module_seperator(_) for _ in dfvp])
-
-        # Cache data
-        joblib.dump(npvs, 'npvs.dump')
-        joblib.dump(vp_module_readouts, 'vp_module_readouts.dump')
-    else:
-        npvs = joblib.load('npvs.dump')
-        vp_module_readouts = joblib.load('vp_module_readouts.dump')
-        scaler_pv = joblib.load('scaler_pv.dump')
+    npvs, vp_module_readouts, scaler_pv = data_loader()
 
     batch_size = 100    # Number of samples in each batch
     lr = 0.003          # Learning rate
