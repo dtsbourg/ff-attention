@@ -28,6 +28,7 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 plt.style.use('ggplot')
 
 from ff_attention import FFAttention
@@ -161,8 +162,15 @@ def plot_results(logger, scaler_pv, show_results=True):
             plt.imshow(sequence.transpose(), interpolation='nearest')
 
             plt.grid()
-            plt.yticks([0,1,2,3,4], ['Module #1', 'Module #2', 'Module #3', 'Module #4', 'Attention'])
+            plt.yticks([0,1,2,3,4], ['Sensor #1', 'Sensor #2', 'Sensor #3', 'Sensor #4', 'Attention'])
             plt.colorbar(aspect=5)
+
+        df = pd.DataFrame(list(zip(preds_fl[:,0],gt_fl[:,0])), columns=['preds', 'gt'])
+        #sns.jointplot("preds", "gt", data=df, kind='kde')
+        g = sns.JointGrid(x="preds", y="gt", data=df)
+        g.plot_joint(sns.regplot, order=2)
+        g.plot_marginals(sns.distplot)
+
         plt.tight_layout()
         plt.show()
 
