@@ -109,128 +109,7 @@ def data_loader(cache=True):
 
     return npvs, vp_module_readouts, scaler_pv
 
-
-def main():
-    """
-    Run experiment.
-    """
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    logger = AttentionLog()
-    npvs, vp_module_readouts, scaler_pv = data_loader()
-
-    batch_size = 100    # Number of samples in each batch
-    lr = 0.003          # Learning rate
-    n_seqs = 2500       # number of sequences == number of samples
-    T = 52              # Sequence length == number of modules in our case
-    D_in = 4            # 4 modules per sensor
-
-    npvs = npvs[:n_seqs]
-    vp_module_readouts = vp_module_readouts[:n_seqs,:]
-
-    # Create or load the model
-    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=1, hidden=104)
-
-    load_model = True
-    if load_model is True:
-        model_path = 'vppv_model_best_epoch2018-06-11-17-44-(104_2k5eps).pth'
-        checkpoint = torch.load(model_path)
-        model.load_state_dict(checkpoint['state_dict'])
-
-    # calculate the number of batches per epoch
-    batch_per_ep = n_seqs // batch_size
-
-    # Using the details from the paper [1]
-    criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999))
-
-    if load_model is True:
-        optimizer.load_state_dict(checkpoint['optimizer'])
-
-    # Define training data
-    seq_ds = VPSequenceDataset(vp_module_readouts, npvs)
-    # Define training data loader
-    seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds,
-                                                    batch_size=batch_size,
-                                                    shuffle=True)
-
-    # Define test data
-    seq_ds_test = VPSequenceDataset(vp_module_readouts, npvs)
-    # Define test data loader
-    test_seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds_test,
-                                                          batch_size=batch_size,
-                                                          shuffle=True)
-
-    epoch_num = 2500    # Number of epochs to train the network
-    preds = []; gt = [];
-    for ep in range(epoch_num):  # epochs loop
-        if load_model is True: # Skip training if pre-trained model is loaded
-            break
-        batch_losses = [];
-        for batch_idx, data in enumerate(seq_dataset_loader): # batches loop
-            features, labels = data
-
-            # Reset gradients
-            optimizer.zero_grad()
-
-            # Forward pass
-            output, alphas = model(features, training=True)
-            loss = criterion(output.view(-1,1), labels.view(-1,1).float())
-            batch_losses.append(loss.data.item())
-
-            # Backward pass and updates
-            loss.backward()                 # calculate the gradients (backpropagation)
-            optimizer.step()                # update the weights
-
-        if not ep % 5:
-            print('[TRAIN] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
-
-        logger.losses['train'].append(np.mean(batch_losses))
-
-        batch_losses = []; outputs = []; attention = []; label_log = [];
-        for batch_idx, data in enumerate(test_seq_dataset_loader):
-            features, labels = data
-            output, alphas = model(features, training=False)
-
-            outputs.append(flatten(output.tolist()))
-            attention.append(alphas.tolist())
-            label_log.append(labels.tolist())
-
-            loss = criterion(output.view(-1,1), labels.view(-1,1).float())
-            batch_losses.append(loss.data.item())
-
-        if not ep % 5:
-            print('[TEST] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
-
-        logger.losses['test'].append(np.mean(batch_losses))
-
-        if np.mean(batch_losses) == np.min(logger.losses['test']):
-            logger.best_epoch = ep
-            logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
-            save_state = {
-            'epoch': ep,
-            'state_dict': model.state_dict(),
-            'optimizer' : optimizer.state_dict(),
-            }
-            uid = '2018-06-11-17-44-(104_2k5eps)'
-            torch.save(save_state, 'vppv_model_best_epoch'+uid+'.pth')
-
-    if load_model is True:
-        batch_losses = []; outputs = []; attention = []; label_log = [];
-        for batch_idx, data in enumerate(test_seq_dataset_loader):
-            features, labels = data
-            output, alphas = model(features, training=False)
-
-            outputs.append(flatten(output.tolist()))
-            attention.append(alphas.tolist())
-            label_log.append(labels.tolist())
-
-            loss = criterion(output.view(-1,1), labels.view(-1,1).float())
-            batch_losses.append(loss.data.item())
-        logger.losses['test'].append(np.mean(batch_losses))
-        logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
-
-    # Set to false to hide plots
-    show_results = True
+def plot_results(logger, scaler_pv, show_results=True):
     if show_results is True:
         plt.style.use('ggplot')
         plt.figure(1,figsize=(15,10))
@@ -287,5 +166,132 @@ def main():
         plt.tight_layout()
         plt.show()
 
+def main():
+    """
+    Run experiment.
+    """
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    logger = AttentionLog()
+    npvs, vp_module_readouts, scaler_pv = data_loader()
+
+    # Config
+    load_model = True
+    uid = '2018-06-11-17-44-(104_2k5eps)'
+    MODEL_PATH = 'vppv_model_best_epoch' + uid + '.pth'
+
+    epoch_num = 2500                    # Number of epochs to train the network
+    batch_size = 100                    # Number of samples in each batch
+    lr = 0.003                          # Learning rate
+    n_seqs = 2500                       # number of sequences == number of samples
+    T = vp_module_readouts.shape[1]     # Sequence length == number of modules in our case
+    D_in = vp_module_readouts.shape[2]  # 4 modules per sensor
+    D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
+    D_hidden = 104                      # Hidden dimension
+
+    batch_per_ep = n_seqs // batch_size # calculate the number of batches per epoch
+
+    # Subsample data
+    npvs = npvs[:n_seqs]
+    vp_module_readouts = vp_module_readouts[:n_seqs,:]
+
+    # Create or load the model
+    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=D_out, hidden=D_hidden)
+    if load_model is True:
+        checkpoint = torch.load(MODEL_PATH)
+        model.load_state_dict(checkpoint['state_dict'])
+
+    # Using the details from the paper [1] for optimizer
+    criterion = torch.nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999))
+    if load_model is True:
+        optimizer.load_state_dict(checkpoint['optimizer'])
+
+    # Define training data
+    seq_ds = VPSequenceDataset(vp_module_readouts, npvs)
+    # Define training data loader
+    seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds,
+                                                    batch_size=batch_size,
+                                                    shuffle=True)
+
+    # Define test data
+    seq_ds_test = VPSequenceDataset(vp_module_readouts, npvs)
+    # Define test data loader
+    test_seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds_test,
+                                                          batch_size=batch_size,
+                                                          shuffle=True)
+
+    preds = []; gt = [];
+    for ep in range(epoch_num):  # epochs loop
+        if load_model is True: # Skip training if pre-trained model is loaded
+            break
+        batch_losses = [];
+        for batch_idx, data in enumerate(seq_dataset_loader): # batches loop
+            features, labels = data
+
+            # Reset gradients
+            optimizer.zero_grad()
+
+            # Forward pass
+            output, alphas = model(features, training=True)
+            loss = criterion(output.view(-1,1), labels.view(-1,1).float())
+            batch_losses.append(loss.data.item())
+
+            # Backward pass and updates
+            loss.backward()                 # calculate the gradients (backpropagation)
+            optimizer.step()                # update the weights
+
+        if not ep % 5:
+            print('[TRAIN] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
+
+        logger.losses['train'].append(np.mean(batch_losses))
+
+        batch_losses = []; outputs = []; attention = []; label_log = [];
+        for batch_idx, data in enumerate(test_seq_dataset_loader):
+            features, labels = data
+            output, alphas = model(features, training=False)
+
+            outputs.append(flatten(output.tolist()))
+            attention.append(alphas.tolist())
+            label_log.append(labels.tolist())
+
+            loss = criterion(output.view(-1,1), labels.view(-1,1).float())
+            batch_losses.append(loss.data.item())
+
+        if not ep % 5:
+            print('[TEST] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
+
+        logger.losses['test'].append(np.mean(batch_losses))
+
+        if np.mean(batch_losses) == np.min(logger.losses['test']):
+            logger.best_epoch = ep
+            logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+            save_state = {
+            'epoch': ep,
+            'state_dict': model.state_dict(),
+            'optimizer' : optimizer.state_dict(),
+            }
+
+            torch.save(save_state, MODEL_PATH)
+
+    if load_model is True:
+        batch_losses = []; outputs = []; attention = []; label_log = [];
+        for batch_idx, data in enumerate(test_seq_dataset_loader):
+            features, labels = data
+            output, alphas = model(features, training=False)
+
+            outputs.append(flatten(output.tolist()))
+            attention.append(alphas.tolist())
+            label_log.append(labels.tolist())
+
+            loss = criterion(output.view(-1,1), labels.view(-1,1).float())
+            batch_losses.append(loss.data.item())
+        logger.losses['test'].append(np.mean(batch_losses))
+        logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+
+    return logger
+
 if __name__ == '__main__':
-    main()
+    logger = main()
+    SCALER_CACHE = 'scaler_pv.dump'
+    scaler_pv = joblib.load(SCALER_CACHE)
+    plot_results(logger, scaler_pv)
