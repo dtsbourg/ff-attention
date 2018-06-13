@@ -54,9 +54,9 @@ class VPAttention(FFAttention):
         x_t = F.leaky_relu(self.layer0a(x_t))
         if self.training:
             x_t = self.dropout0a(x_t)
-        x_t = F.leaky_relu(self.layer0b(x_t))
-        if self.training:
-            x_t = self.dropout0b(x_t)
+        # x_t = F.leaky_relu(self.layer0b(x_t))
+        # if self.training:
+        #     x_t = self.dropout0b(x_t)
         #x_t = F.leaky_relu(self.layer0c(x_t))
         #if self.training:
         #    x_t = self.dropout0c(x_t)
@@ -160,8 +160,13 @@ def plot_results(logger, scaler_pv, show_results=True):
         plt.title('Error distribution ($\mu$='+mu_str+'; $\sigma$='+std_str+')'+'($\mu_{r}$='+mu_rd_str+'; $\sigma_{r}$='+std_rd_str+')')
         plt.legend()
 
+        common_colorscale = False
         n = 10; start_idx = 10;
-        plt.figure(2,figsize=(10,n+1))
+        fig = plt.figure(2,figsize=(10,n+1))
+        cax = fig.add_axes([0.2, 0.08, 0.6, 0.04])
+        images = []
+        vmin = 1e40
+        vmax = -1e40
 
         for i in range(n):
             sequence = pd.DataFrame(logger.attention_state.inputs[i+start_idx].tolist())
@@ -175,11 +180,26 @@ def plot_results(logger, scaler_pv, show_results=True):
             gtval = np.round(gt_fl[i+start_idx][0])
             plt.title('Attention map for sequence #'+str(i+start_idx)+'; pred=' + str(int(predval))+'; gt='+str(int(gtval)))
 
-            plt.imshow(sequence.transpose(), interpolation='nearest')
+            from numpy import amin, amax, ravel
+            dd = ravel(sequence)
+            # Manually find the min and max of all colors for
+            # use in setting the color scale.
+            vmin = min(vmin, amin(dd))
+            vmax = max(vmax, amax(dd))
+            images.append(plt.imshow(sequence.transpose(), interpolation='nearest'))
 
             plt.grid()
             plt.yticks([0,1,2,3,4], ['Sensor #1', 'Sensor #2', 'Sensor #3', 'Sensor #4', 'Attention'])
             plt.colorbar(aspect=5)
+
+        if common_colorscale is True:
+            norm = colors.Normalize(vmin=vmin, vmax=vmax)
+            for i, im in enumerate(images):
+                im.set_norm(norm)
+                if i > 0:
+                    images[0].callbacksSM.connect('changed', ImageFollower(im))
+
+        plt.tight_layout()
 
         df = pd.DataFrame(list(zip(preds_fl[:,0],gt_fl[:,0])), columns=['preds', 'gt'])
         #sns.jointplot("preds", "gt", data=df, kind='kde')
@@ -189,6 +209,19 @@ def plot_results(logger, scaler_pv, show_results=True):
 
         plt.tight_layout()
         plt.show()
+
+class ImageFollower(object):
+    'update image in response to changes in clim or cmap on another image'
+
+    def __init__(self, follower):
+        self.follower = follower
+
+    def __call__(self, leader):
+        self.follower.set_cmap(leader.get_cmap())
+        self.follower.set_clim(leader.get_clim())
+
+from matplotlib import cm, colors
+from matplotlib.pyplot import sci
 
 def main():
     """
@@ -203,7 +236,7 @@ def main():
     uid = '2018-06-11-17-44-(104_2k5eps)_test_fix'
     MODEL_PATH = 'models/vppv_model_best_epoch' + uid + '.pth'
 
-    epoch_num = 250                     # Number of epochs to train the network
+    epoch_num = 2                    # Number of epochs to train the network
     batch_size = 100                    # Number of samples in each batch
     lr = 0.001                          # Learning rate
     n_seqs = 1000                       # number of sequences == number of samples
@@ -212,9 +245,14 @@ def main():
     D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
     D_hidden = 104                      # Hidden dimension
 
+    tt_ratio = .5
+    train_idx = np.random.uniform(0, 1, len(npvs)) <= tt_ratio
+    n_train = int(n_seqs * tt_ratio)
+    n_test = int(n_seqs * (1-tt_ratio))
+
     # Subsample data
-    npvs = npvs[:n_seqs]
-    vp_module_readouts = vp_module_readouts[:n_seqs,:]
+    # npvs = npvs[:n_seqs]
+    # vp_module_readouts = vp_module_readouts[:n_seqs,:]
 
     # Create or load the model
     model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=D_out, hidden=D_hidden)
@@ -228,22 +266,19 @@ def main():
     if load_model is True:
         optimizer.load_state_dict(checkpoint['optimizer'])
 
-    tt_ratio = .5
-    train_idx = np.random.uniform(0, 1, len(npvs)) <= tt_ratio
-
     batch_per_ep = n_seqs // batch_size # calculate the number of batches per epoch
     batch_per_ep_tr = int(batch_per_ep * tt_ratio)
     batch_per_ep_te = batch_per_ep - batch_per_ep_tr
 
     # Define training data
-    seq_ds = VPSequenceDataset(vp_module_readouts[train_idx], npvs[train_idx])
+    seq_ds = VPSequenceDataset(vp_module_readouts[train_idx][:n_train,:], npvs[train_idx][:n_train])
     # Define training data loader
     seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds,
                                                     batch_size=batch_size,
                                                     shuffle=True)
 
     # Define test data
-    seq_ds_test = VPSequenceDataset(vp_module_readouts[~train_idx], npvs[~train_idx])
+    seq_ds_test = VPSequenceDataset(vp_module_readouts[~train_idx][:n_test,:], npvs[~train_idx][:n_test])
     # Define test data loader
     test_seq_dataset_loader = torch.utils.data.DataLoader(dataset=seq_ds_test,
                                                           batch_size=batch_size,
