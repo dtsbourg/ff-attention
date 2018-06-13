@@ -42,13 +42,13 @@ class VPAttention(FFAttention):
         self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
         self.dropout0b = torch.nn.Dropout(p=0.2)
         self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
-        self.dropout0c = torch.nn.Dropout(p=0.2)
-        self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
+        #self.dropout0c = torch.nn.Dropout(p=0.2)
+        #self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
         self.dropout1 = torch.nn.Dropout(p=0.2)
         self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
         self.dropout2 = torch.nn.Dropout(p=0.2)
-        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden // 2)
-        self.out_layer = torch.nn.Linear(self.hidden // 2, self.out_dim)
+        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden)
+        self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
 
     def embedding(self, x_t):
         x_t = F.leaky_relu(self.layer0a(x_t))
@@ -57,9 +57,9 @@ class VPAttention(FFAttention):
         x_t = F.leaky_relu(self.layer0b(x_t))
         if self.training:
             x_t = self.dropout0b(x_t)
-        x_t = F.leaky_relu(self.layer0c(x_t))
-        if self.training:
-            x_t = self.dropout0c(x_t)
+        #x_t = F.leaky_relu(self.layer0c(x_t))
+        #if self.training:
+        #    x_t = self.dropout0c(x_t)
         return x_t
 
     def activation(self, h_t):
@@ -201,12 +201,12 @@ def main():
     # Config
     load_model = False
     uid = '2018-06-11-17-44-(104_2k5eps)_test_fix'
-    MODEL_PATH = 'model/vppv_model_best_epoch' + uid + '.pth'
+    MODEL_PATH = 'models/vppv_model_best_epoch' + uid + '.pth'
 
     epoch_num = 250                     # Number of epochs to train the network
     batch_size = 100                    # Number of samples in each batch
-    lr = 0.003                          # Learning rate
-    n_seqs = 9000                       # number of sequences == number of samples
+    lr = 0.001                          # Learning rate
+    n_seqs = 1000                       # number of sequences == number of samples
     T = vp_module_readouts.shape[1]     # Sequence length == number of modules in our case
     D_in = vp_module_readouts.shape[2]  # 4 modules per sensor
     D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
@@ -224,7 +224,7 @@ def main():
 
     # Using the details from the paper [1] for optimizer
     criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999), weight_decay=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999), weight_decay=1e-4)
     if load_model is True:
         optimizer.load_state_dict(checkpoint['optimizer'])
 
@@ -330,6 +330,6 @@ def main():
 
 if __name__ == '__main__':
     logger = main()
-    SCALER_CACHE = 'scaler_pv.dump'
+    SCALER_CACHE = 'cache/scaler_pv.dump'
     scaler_pv = joblib.load(SCALER_CACHE)
     plot_results(logger, scaler_pv)
