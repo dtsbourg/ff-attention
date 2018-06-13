@@ -89,9 +89,9 @@ class VPSequenceDataset(Dataset):
 
 def data_loader(cache=True):
     # Cache config
-    NPVS_CACHE = 'npvs.dump'
-    VP_CACHE = 'vp_module_readouts.dump'
-    SCALER_CACHE = 'scaler_pv.dump'
+    NPVS_CACHE = 'cache/npvs.dump'
+    VP_CACHE = 'cache/vp_module_readouts.dump'
+    SCALER_CACHE = 'cache/scaler_pv.dump'
     # Raw Bank Sizes (incl. number of PVs)
     npvs_file  = 'data/minbias10.npy'
     # Contains the occupancies for every VP sensor
@@ -201,9 +201,9 @@ def main():
     # Config
     load_model = False
     uid = '2018-06-11-17-44-(104_2k5eps)_test_fix'
-    MODEL_PATH = 'vppv_model_best_epoch' + uid + '.pth'
+    MODEL_PATH = 'model/vppv_model_best_epoch' + uid + '.pth'
 
-    epoch_num = 2500                    # Number of epochs to train the network
+    epoch_num = 250                     # Number of epochs to train the network
     batch_size = 100                    # Number of samples in each batch
     lr = 0.003                          # Learning rate
     n_seqs = 9000                       # number of sequences == number of samples
