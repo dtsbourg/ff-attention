@@ -32,7 +32,6 @@ from torch.utils.data.dataset import Dataset
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 
@@ -46,7 +45,7 @@ class AdditionAttention(FFAttention):
         super(AdditionAttention, self).__init__(*args, **kwargs)
         self.layer0 = torch.nn.Linear(self.n_features, self.hidden)
         self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
-        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden)
+        self.layer2 = torch.nn.Linear(self.hidden, self.hidden)
         self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
 
     def embedding(self, x_t):
@@ -54,7 +53,7 @@ class AdditionAttention(FFAttention):
         return F.leaky_relu(x_t)
 
     def activation(self, h_t):
-        return F.leaky_relu(self.layer1(h_t))
+        return F.tanh(self.layer1(h_t))
 
     def out(self, c):
         x = F.leaky_relu(self.layer2(c))
@@ -92,13 +91,14 @@ def main():
     Run experiment.
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
     logger = AttentionLog()
 
-    batch_size = 100   # Number of samples in each batch
+    batch_size = 100    # Number of samples in each batch
     lr = 0.003          # Learning rate
-    n_seqs = 1000       # number of sequences to generate
+    n_seqs = 100        # number of sequences to generate
     T = 100             # Sequence length
+    epoch_num = 50      # Number of epochs to train the network
+    show_results = True # Set to false to hide plots
 
     # Create the model
     model = AdditionAttention(batch_size=batch_size, T=T)
@@ -124,7 +124,6 @@ def main():
                                                           batch_size=batch_size,
                                                           shuffle=True)
 
-    epoch_num = 200    # Number of epochs to train the network
     preds = []; gt = []; attentions = [];
     for ep in range(epoch_num):  # epochs loop
         batch_losses = [];
@@ -143,7 +142,7 @@ def main():
             loss.backward()                 # calculate the gradients (backpropagation)
             optimizer.step()                # update the weights
 
-        if not ep % 100:
+        if not ep % 10:
             print('[TRAIN] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
 
         logger.losses['train'].append(np.mean(batch_losses))
@@ -160,7 +159,7 @@ def main():
             loss = criterion(output.view(-1,1), labels.view(-1,1).float())
             batch_losses.append(loss.data.item())
 
-        if not ep % 100:
+        if not ep % 10:
             print('[TEST] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep), 'loss: ', loss.data.item())
 
         logger.losses['test'].append(np.mean(batch_losses))
@@ -169,44 +168,32 @@ def main():
             logger.best_epoch = ep
             logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
 
-    # Set to false to hide plots
-    show_results = True
+    print("=== Best epoch:")
+    print("Epoch #", logger.best_epoch)
+    print("Test Loss = ", logger.losses['test'][best_ep])
+    print("Train Loss = ", logger.losses['train'][best_ep])
+
     if show_results is True:
-        plt.style.use('ggplot')
+        preds_fl = flatten(logger.attention_state.prediction)
+        gt_fl = logger.attention_state.label
+
+        ############################################################
+        # LOSS
         plt.figure(figsize=(15,10))
         plt.subplot(3,1,1)
-        plt.plot(logger.losses['train'], label='Train')
-        plt.plot(logger.losses['test'], label='Test')
-        plt.title('Loss')
-        plt.legend()
-
+        plot_loss(logger)
+        # Sample Predictions
         plt.subplot(3,1,2)
-        preds_fl = flatten(logger.attention_state.prediction[:200])
-        gt_fl = logger.attention_state.label[:200]
-
-        plt.bar(range(len(preds_fl)), preds_fl, alpha=0.5, label='Predicted', color='b')
-        plt.bar(range(len(gt_fl)), gt_fl, alpha=0.5, label='Truth', color='r')
-        plt.title('Sample predictions')
-        plt.legend()
-
+        plot_predictions(y_true=gt_fl, y_pred=preds_fl, sample=50)
+        # Error distribution
         plt.subplot(3,1,3)
-        plt.title('Error distribution')
-        plt.hist(np.subtract(gt_fl,preds_fl))
+        plot_error(y_true=gt_fl, y_pred=preds_fl)
 
 
-        n = 4
-        plt.figure(figsize=(15,n+1))
-        scaler = MinMaxScaler()
-        for i in range(n):
-            sequence = pd.DataFrame(logger.attention_state.inputs[i].tolist())
-            sequence['attention'] = logger.attention_state.alphas[i][0].tolist()
-            sequence['attention'] = scaler.fit_transform(sequence['attention'].values.reshape(-1,1))
-            plt.subplot(n,1,i+1)
-            plt.title('Attention map for sequence #'+str(i)+'; pred='+str(np.around(preds_fl[i],2))+' gt='+str(np.around(gt_fl[i],2)))
-            plt.imshow(sequence.transpose(), interpolation='nearest')
-            plt.grid()
-            plt.yticks([0,1,2], ['In #1', 'In #2', 'Attention'])
-            plt.colorbar(aspect=5)
+        ############################################################
+        # ATTENTION
+        plot_attention(logger, y_true=gt_fl, y_pred=preds_fl, n_seq=4)
+
         plt.tight_layout()
         plt.show()
 
