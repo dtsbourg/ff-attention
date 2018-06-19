@@ -43,18 +43,35 @@ class PureFFAttention(torch.nn.Module):
         self.out_dim = D_out
         self.hidden = hidden
 
+        # Layer 0a
+        self.dropout0a = torch.nn.Dropout(p=0.2)
         self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
+        self.bn0a = torch.nn.BatchNorm1d(self.hidden)
+        torch.nn.init.xavier_uniform_(self.layer0a.weight)
+        # Layer 0b
+        self.dropout0b = torch.nn.Dropout(p=0.2)
         self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
+        self.bn0b = torch.nn.BatchNorm1d(self.hidden)
+        torch.nn.init.xavier_uniform_(self.layer0b.weight)
+        # Layer 0b
+        self.dropout0c = torch.nn.Dropout(p=0.2)
         self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
+        self.bn0c = torch.nn.BatchNorm1d(self.hidden)
+        torch.nn.init.xavier_uniform_(self.layer0c.weight)
+
         self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
 
     def forward(self, x, training=True):
         """
         Forward pass for the Feed Forward Attention network.
         """
-        x = F.leaky_relu(self.layer0a(x))
-        x = F.leaky_relu(self.layer0b(x))
-        x = F.leaky_relu(self.layer0c(x))
+        x = self.bn0a(F.leaky_relu(self.layer0a(x)))
+        if self.training:
+            x = self.dropout0a(x)
+        x = self.bn0b(F.leaky_relu(self.layer0b(x)))
+        if self.training:
+            x = self.dropout0b(x)
+        x = self.bn0c(F.leaky_relu(self.layer0c(x)))
         x = F.leaky_relu(self.out_layer(x))
         return x
 
@@ -62,8 +79,6 @@ class VPSequenceDataset(Dataset):
     def __init__(self, vp_module_readouts, npvs):
         self.data = torch.from_numpy(vp_module_readouts)
         self.target = torch.from_numpy(npvs)
-
-
 
     def __getitem__(self, index):
         batch_labels = self.target[index]
@@ -73,11 +88,11 @@ class VPSequenceDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-def data_loader(cache=False):
+def data_loader_pure(cache=False):
     # Cache config
-    NPVS_CACHE = 'npvs_ff_pure.dump'
-    VP_CACHE = 'vp_module_readouts_ff_pure.dump'
-    SCALER_CACHE = 'scaler_pv_ff_pure.dump'
+    NPVS_CACHE = 'cache/npvs_ff_pure.dump'
+    VP_CACHE = 'cache/vp_module_readouts_ff_pure.dump'
+    SCALER_CACHE = 'cache/scaler_pv_ff_pure.dump'
     # Raw Bank Sizes (incl. number of PVs)
     npvs_file  = 'data/minbias10.npy'
     # Contains the occupancies for every VP sensor
@@ -88,7 +103,7 @@ def data_loader(cache=False):
         dfpv = pd.DataFrame(np.load(npvs_file))
         vp_occ = list(map(np.array, np.load(VP_file)))
         # Scale
-        scaler_pv = StandardScaler()
+        scaler_pv = MinMaxScaler()
         npvs = scaler_pv.fit_transform(np.asarray(dfpv['EventpRecVertexPrimary']).reshape(-1,1))
         joblib.dump(scaler_pv, SCALER_CACHE)
 
@@ -98,7 +113,7 @@ def data_loader(cache=False):
             dfvp[i] = list(map(float,vp_occ[i]))
         dfvp = dfvp.transpose()
         # Scale
-        scaler_vp = StandardScaler()
+        scaler_vp = MinMaxScaler()
         dfvp = scaler_vp.fit_transform(dfvp)
         vp_module_readouts = np.asarray(dfvp)
 
@@ -112,48 +127,30 @@ def data_loader(cache=False):
 
     return npvs, vp_module_readouts, scaler_pv
 
-def plot_results(logger, scaler_pv, show_results=True):
+def plot_results(logger, scaler, show_results=True):
     if show_results is True:
-        plt.style.use('ggplot')
-        plt.figure(1,figsize=(15,10))
+        # Prepare predictions and Ground Truth for analysis
+        preds_fl = scaler.inverse_transform(logger.attention_state.prediction.reshape(-1, 1))[:,0]
+        gt_fl = np.round(scaler.inverse_transform(logger.attention_state.label.reshape(-1, 1)))[:,0]
+
+        ############################################################
+        # LOSS
+        plt.figure(figsize=(15,10))
         plt.subplot(3,1,1)
-        plt.plot(logger.losses['train'], label='Train')
-        plt.plot(logger.losses['test'], label='Test')
-        plt.title('Loss')
-        plt.legend()
-
+        plot_loss(logger)
+        # Sample Predictions
         plt.subplot(3,1,2)
-
-        preds_fl = scaler_pv.inverse_transform(logger.attention_state.prediction.reshape(-1, 1))
-        gt_fl = np.round(scaler_pv.inverse_transform(logger.attention_state.label.reshape(-1, 1)))
-        print(gt_fl.shape)
-        sample = 200
-
-        plt.bar(range(sample), preds_fl[:sample,0], alpha=0.5, label='Predicted', color='b')
-        #plt.bar(range(200), np.round(preds_fl[:200,0]), alpha=0.5, label='Rounded', color='g')
-        plt.bar(range(sample), gt_fl[:sample,0], alpha=0.5, label='Truth', color='r')
-        plt.title('Sample predictions')
-        plt.legend()
-
+        plot_predictions(y_true=gt_fl, y_pred=preds_fl, scaler=scaler_pv, sample=200)
+        # Error distribution
         plt.subplot(3,1,3)
-        errs = np.subtract(gt_fl, preds_fl)
-        errs_rounded = np.subtract(gt_fl, np.round(preds_fl))
+        plot_error(y_true=gt_fl, y_pred=preds_fl, rounded=True)
 
-        plt.hist(errs, label='Regression Error', alpha=0.5)
-        plt.hist(errs_rounded, label='Rounded Error', alpha=0.5)
-        mu_str = str(np.around(np.mean(errs),2)); std_str = str(np.around(np.std(errs),2));
-        mu_rd_str = str(np.around(np.mean(errs_rounded),2)); std_rd_str = str(np.around(np.std(errs_rounded),2));
-        plt.title('Error distribution ($\mu$='+mu_str+'; $\sigma$='+std_str+')'+'($\mu_{r}$='+mu_rd_str+'; $\sigma_{r}$='+std_rd_str+')')
-        plt.legend()
+        ############################################################
+        # CONFUSION
+        plot_confusion(y_true=gt_fl, y_pred=preds_fl)
 
-        df = pd.DataFrame(list(zip(preds_fl[:,0],gt_fl[:,0])), columns=['preds', 'gt'])
-        #sns.jointplot("preds", "gt", data=df, kind='kde')
-        g = sns.JointGrid(x="preds", y="gt", data=df)
-        g.plot_joint(sns.regplot, order=2)
-        g.plot_marginals(sns.distplot)
-
-        plt.tight_layout()
         plt.show()
+        plt.tight_layout()
 
 def main():
     """
@@ -161,14 +158,14 @@ def main():
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     logger = AttentionLog()
-    npvs, vp_module_readouts, scaler_pv = data_loader()
+    npvs, vp_module_readouts, scaler_pv = data_loader_pure()
 
     # Config
     load_model = False
-    uid = '2018-06-12-13-44-PURE-FF'
+    uid = '2018-06-19-13-44-PURE-FF'
     MODEL_PATH = 'vppv_pure_ff_model_best_epoch' + uid + '.pth'
 
-    epoch_num = 200                    # Number of epochs to train the network
+    epoch_num = 100                     # Number of epochs to train the network
     batch_size = 100                    # Number of samples in each batch
     lr = 0.003                          # Learning rate
     n_seqs = 9000                       # number of sequences == number of samples
@@ -277,11 +274,16 @@ def main():
             batch_losses.append(loss.data.item())
         logger.losses['test'].append(np.mean(batch_losses))
         logger.attention_state = AttentionState(alphas=[], inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+    else:
+        print("=== Best epoch:")
+        print("Epoch #", logger.best_epoch)
+        print("Test Loss = ", logger.losses['test'][logger.best_epoch])
+        print("Train Loss = ", logger.losses['train'][logger.best_epoch])
 
     return logger
 
 if __name__ == '__main__':
     logger = main()
-    SCALER_CACHE = 'scaler_pv.dump'
+    SCALER_CACHE = 'cache/scaler_pv.dump'
     scaler_pv = joblib.load(SCALER_CACHE)
     plot_results(logger, scaler_pv)
