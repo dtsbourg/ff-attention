@@ -37,7 +37,7 @@ class FFAttention(torch.nn.Module):
         D_out (int): The dimension of the desired predicted quantity.
         hidden (int): The dimension of the hidden state.
     """
-    def __init__(self, batch_size=10, T=10, D_in=2, D_out=1, D_attn=2, hidden=100):
+    def __init__(self, batch_size=10, T=10, D_in=2, D_out=1, hidden=100):
         super(FFAttention, self).__init__()
         # Net Config
         self.T = T
@@ -45,7 +45,6 @@ class FFAttention(torch.nn.Module):
         self.n_features = D_in
         self.out_dim = D_out
         self.hidden = hidden
-        self.attention_dim = D_attn
 
     def embedding(self, x_t):
         """
