@@ -170,8 +170,8 @@ def main():
 
     print("=== Best epoch:")
     print("Epoch #", logger.best_epoch)
-    print("Test Loss = ", logger.losses['test'][best_ep])
-    print("Train Loss = ", logger.losses['train'][best_ep])
+    print("Test Loss = ", logger.losses['test'][logger.best_epoch])
+    print("Train Loss = ", logger.losses['train'][logger.best_epoch])
 
     if show_results is True:
         preds_fl = flatten(logger.attention_state.prediction)

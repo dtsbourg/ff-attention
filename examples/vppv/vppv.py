@@ -310,8 +310,8 @@ def main():
     else:
         print("=== Best epoch:")
         print("Epoch #", logger.best_epoch)
-        print("Test Loss = ", logger.losses['test'][best_ep])
-        print("Train Loss = ", logger.losses['train'][best_ep])
+        print("Test Loss = ", logger.losses['test'][logger.best_epoch])
+        print("Train Loss = ", logger.losses['train'][logger.best_epoch])
 
     return logger
 
