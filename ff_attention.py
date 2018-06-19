@@ -66,8 +66,7 @@ class FFAttention(torch.nn.Module):
         Compute the probabilities alpha_t
         """
         softmax = torch.nn.Softmax(dim=1)
-        # print(e_t.shape)
-        alphas = softmax(e_t)#.view(self.batch_size, self.attention_dim, self.T)
+        alphas = softmax(e_t)
         return alphas
 
     def context(self, alpha_t, x_t):
@@ -90,13 +89,8 @@ class FFAttention(torch.nn.Module):
         """
         self.training = training
         x_e = self.embedding(x)
-        # print(x.shape)
         x_a = self.activation(x_e)
-        # print(x.shape)
         alpha = self.attention(x_a)
-        # print(alpha.shape, x_e.shape)
-        # print(x.shape)
         x_c = self.context(alpha, x_e)
-        # print(x.shape)
         x_o = self.out(x_c)
         return x_o, alpha

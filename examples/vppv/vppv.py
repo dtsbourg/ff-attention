@@ -40,56 +40,79 @@ from utils import *
 class VPAttention(FFAttention):
     def __init__(self, *args, **kwargs):
         super(VPAttention, self).__init__(*args, **kwargs)
+        self.context_embedding = None
+
         ## Encoder
         # Layer 0a
         self.dropout0a = torch.nn.Dropout(p=0.2)
         self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
         self.bn0a = torch.nn.BatchNorm1d(self.T)
         torch.nn.init.xavier_uniform_(self.layer0a.weight)
-        # Layer 0b
-        self.dropout0b = torch.nn.Dropout(p=0.2)
-        self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
-        self.bn0b = torch.nn.BatchNorm1d(self.T)
-        torch.nn.init.xavier_uniform_(self.layer0b.weight)
-        # Layer 0b
-        self.dropout0c = torch.nn.Dropout(p=0.2)
-        self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
-        self.bn0c = torch.nn.BatchNorm1d(self.T)
-        torch.nn.init.xavier_uniform_(self.layer0c.weight)
+        # # Layer 0b
+        # self.dropout0b = torch.nn.Dropout(p=0.2)
+        # self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
+        # self.bn0b = torch.nn.BatchNorm1d(self.T)
+        # torch.nn.init.xavier_uniform_(self.layer0b.weight)
+        # # Layer 0c
+        # self.dropout0c = torch.nn.Dropout(p=0.2)
+        # self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
+        # self.bn0c = torch.nn.BatchNorm1d(self.T)
+        # torch.nn.init.xavier_uniform_(self.layer0c.weight)
 
         ## Decoder
         # Layer 1
         self.dropout1 = torch.nn.Dropout(p=0.2)
         self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
         torch.nn.init.xavier_uniform_(self.layer1.weight)
-        # Layer 2
-        self.dropout2 = torch.nn.Dropout(p=0.2)
-        self.layer2 = torch.nn.Linear(self.hidden, self.hidden)
-        self.bn2 = torch.nn.BatchNorm1d(self.out_dim)
-        torch.nn.init.xavier_uniform_(self.layer2.weight)
         # Out
-        self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
+        # # Layer a
+        # self.dropouta = torch.nn.Dropout(p=0.2)
+        # self.out_layera = torch.nn.Linear(self.hidden, self.hidden)
+        # self.bna = torch.nn.BatchNorm1d(self.out_dim)
+        # torch.nn.init.xavier_uniform_(self.out_layera.weight)
+        # # Layer b
+        # self.dropoutb = torch.nn.Dropout(p=0.2)
+        # self.out_layerb = torch.nn.Linear(self.hidden, self.hidden)
+        # self.bnb = torch.nn.BatchNorm1d(self.out_dim)
+        # torch.nn.init.xavier_uniform_(self.out_layerb.weight)
+        # Layer c
+        self.dropoutc = torch.nn.Dropout(p=0.2)
+        self.out_layerc = torch.nn.Linear(self.hidden, self.out_dim)
+        self.bnc = torch.nn.BatchNorm1d(self.out_dim)
+        torch.nn.init.xavier_uniform_(self.out_layerc.weight)
 
     def embedding(self, x_t):
         x_t = self.bn0a(F.leaky_relu(self.layer0a(x_t)))
         if self.training:
             x_t = self.dropout0a(x_t)
-        x_t = self.bn0b(F.leaky_relu(self.layer0b(x_t)))
-        if self.training:
-            x_t = self.dropout0b(x_t)
-        x_t = self.bn0c(F.leaky_relu(self.layer0c(x_t)))
+        # x_t = self.bn0b(F.leaky_relu(self.layer0b(x_t)))
+        # if self.training:
+        #     x_t = self.dropout0b(x_t)
+        # x_t = self.bn0c(F.leaky_relu(self.layer0c(x_t)))
         return x_t
 
     def activation(self, h_t):
-        h_t = F.sigmoid(self.layer1(h_t))
+        h_t = F.tanh(self.layer1(h_t))
         return h_t
 
     def out(self, c):
-        #c = c.view(self.batch_size, self.out_dim, self.attention_dim ** 2)
-        c = F.leaky_relu(self.layer2(c))
+        # c = self.bna(F.leaky_relu(self.out_layera(c)))
         # if self.training:
-        #     c = self.dropout2(c)
-        return F.leaky_relu(self.out_layer(c))
+        #     c = self.dropouta(c)
+        # c = self.bnb(F.leaky_relu(self.out_layerb(c)))
+        # if self.training:
+        #     c = self.dropoutb(c)
+        c = self.bnc(F.leaky_relu(self.out_layerc(c)))
+        return c
+
+    def context(self, alpha_t, x_t):
+        """
+        Step 4:
+        Compute the context vector c
+        """
+        c = torch.bmm(alpha_t.view(self.batch_size, self.out_dim, self.T), x_t)
+        self.context_embedding = c.squeeze(1)
+        return c
 
 class VPSequenceDataset(Dataset):
     def __init__(self, vp_module_readouts, npvs):
@@ -119,7 +142,7 @@ def data_loader(cache=True):
         dfpv = pd.DataFrame(np.load(npvs_file))
         vp_occ = list(map(np.array, np.load(VP_file)))
         # Scale
-        scaler_pv = MinMaxScaler()
+        scaler_pv = StandardScaler()
         npvs = scaler_pv.fit_transform(np.asarray(dfpv['EventpRecVertexPrimary']).reshape(-1,1))
         joblib.dump(scaler_pv, SCALER_CACHE)
 
@@ -129,7 +152,7 @@ def data_loader(cache=True):
             dfvp[i] = list(map(float,vp_occ[i]))
         dfvp = dfvp.transpose()
         # Scale
-        scaler_vp = MinMaxScaler()
+        scaler_vp = StandardScaler()
         dfvp = scaler_vp.fit_transform(dfvp)
         vp_module_readouts = np.asarray([module_seperator(_) for _ in dfvp])
 
@@ -148,7 +171,7 @@ def plot_results(logger, scaler, show_results=True):
         # Prepare predictions and Ground Truth for analysis
         preds_fl = scaler.inverse_transform(logger.attention_state.prediction.reshape(-1, 1))[:,0]
         gt_fl = np.round(scaler.inverse_transform(logger.attention_state.label.reshape(-1, 1)))[:,0]
-
+        n_samples = 200
         ############################################################
         # LOSS
         plt.figure(figsize=(15,10))
@@ -156,7 +179,7 @@ def plot_results(logger, scaler, show_results=True):
         plot_loss(logger)
         # Sample Predictions
         plt.subplot(3,1,2)
-        plot_predictions(y_true=gt_fl, y_pred=preds_fl, scaler=scaler_pv, sample=200)
+        plot_predictions(y_true=gt_fl, y_pred=preds_fl, scaler=scaler_pv, sample=n_samples)
         # Error distribution
         plt.subplot(3,1,3)
         plot_error(y_true=gt_fl, y_pred=preds_fl, rounded=True)
@@ -168,6 +191,15 @@ def plot_results(logger, scaler, show_results=True):
         ############################################################
         # CONFUSION
         plot_confusion(y_true=gt_fl, y_pred=preds_fl)
+
+        ############################################################
+        # CONTEXT EMBEDDING
+        plt.figure()
+        from sklearn.manifold import TSNE
+        from sklearn.decomposition import PCA
+        ce_tsne = TSNE(n_components=2, perplexity=100).fit_transform(logger.attention_state.context_embedding.detach().numpy())
+        plt.scatter(ce_tsne[:,0], ce_tsne[:,1], c=gt_fl[:n_samples])
+        plt.colorbar()
 
         plt.show()
         plt.tight_layout()
@@ -181,34 +213,32 @@ def main():
     npvs, vp_module_readouts, scaler_pv = data_loader(cache=True)
 
     # Config
-    load_model = True
-    uid = '2018-06-11-17-44_test_fix'
+    load_model = False
+    uid = '2018-06-19-14-34'
     MODEL_PATH = 'models/vppv_model_best_epoch' + uid + '.pth'
 
-    epoch_num = 200                     # Number of epochs to train the network
-    batch_size = 100                    # Number of samples in each batch
-    lr = 0.001                         # Learning rate
+    epoch_num = 100                     # Number of epochs to train the network
+    batch_size = 200                    # Number of samples in each batch
+    lr = 0.001                          # Learning rate
     n_seqs = 2000                       # number of sequences == number of samples
     T = vp_module_readouts.shape[1]     # Sequence length == number of modules in our case
     D_in = vp_module_readouts.shape[2]  # 4 modules per sensor
     D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
     D_hidden = 104                      # Hidden dimension
-    D_attn = 2                          # Dimension the attention vector
-
     tt_ratio = .5
     train_idx = np.random.uniform(0, 1, len(npvs)) <= tt_ratio
     n_train = int(n_seqs * tt_ratio)
     n_test = int(n_seqs * (1-tt_ratio))
 
     # Create or load the model
-    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=D_out, D_attn=D_attn, hidden=D_hidden)
+    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=D_out, hidden=D_hidden)
     if load_model is True:
         checkpoint = torch.load(MODEL_PATH)
         model.load_state_dict(checkpoint['state_dict'])
 
     # Using the details from the paper [1] for optimizer
     criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999), weight_decay=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999), weight_decay=5e-4)
 
     if load_model is True:
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -254,8 +284,8 @@ def main():
             loss.backward()                 # calculate the gradients (backpropagation)
             optimizer.step()                # update the weights
 
-        if not ep % 5:
-            print('[TRAIN] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep_tr), 'loss: ', loss.data.item())
+        if not ep % 10:
+            print('[TRAIN] epoch: {} --'.format(ep), 'loss: ', np.round(np.mean(batch_losses),3), '±', np.round(np.std(batch_losses),3))
 
         logger.losses['train'].append(np.mean(batch_losses))
 
@@ -273,14 +303,18 @@ def main():
             loss = criterion(output.view(-1,1), labels.view(-1,1).float())
             batch_losses.append(loss.data.item())
 
-        if not ep % 5:
-            print('[TEST] epoch: {} - batch: {}/{}'.format(ep, batch_idx, batch_per_ep_te), 'loss: ', loss.data.item())
+        if not ep % 10:
+            print('[TEST]  epoch: {} --'.format(ep), 'loss: ', np.round(np.mean(batch_losses),3), '±', np.round(np.std(batch_losses), 3))
 
         logger.losses['test'].append(np.mean(batch_losses))
 
         if np.mean(batch_losses) == np.min(logger.losses['test']):
             logger.best_epoch = ep
-            logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+            logger.attention_state = AttentionState(alphas=alphas,
+                                                    inputs=features,
+                                                    label=flatten(label_log),
+                                                    prediction=flatten(outputs),
+                                                    context_embedding = model.context_embedding)
             save_state = {
                 'epoch': ep,
                 'state_dict': model.state_dict(),
@@ -306,7 +340,11 @@ def main():
                 break
 
         logger.losses['test'].append(np.mean(batch_losses))
-        logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+        logger.attention_state = AttentionState(alphas=alphas,
+                                                inputs=features,
+                                                label=flatten(label_log),
+                                                prediction=flatten(outputs),
+                                                context_embedding = model.context_embedding)
     else:
         print("=== Best epoch:")
         print("Epoch #", logger.best_epoch)

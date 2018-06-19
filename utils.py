@@ -16,11 +16,12 @@ import numpy as np
 ### Debug utilities ###
 #######################
 class AttentionState():
-    def __init__(self, inputs, alphas, prediction, label):
+    def __init__(self, inputs, alphas, prediction, label, context_embedding=None):
         self.inputs = inputs
         self.alphas = alphas
         self.prediction = prediction
         self.label = label
+        self.context_embedding = context_embedding
 
 class AttentionLog():
     def __init__(self):
@@ -96,8 +97,8 @@ def plot_attention(logger, y_true, y_pred, shared_colorscale=False, n_seq=8, sta
 
         plt.subplot(n_seq,1,i+1)
 
-        predval = np.round(y_pred[i+start_idx])
-        gtval = np.round(y_true[i+start_idx])
+        predval = np.round(y_pred[i+start_idx],2)
+        gtval = np.round(y_true[i+start_idx],2)
         plt.title('Attention map for sequence #'+str(i+start_idx)+'; pred=' + str(int(predval))+'; gt='+str(int(gtval)))
 
         dd = ravel(sequence)
