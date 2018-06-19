@@ -37,7 +37,7 @@ class FFAttention(torch.nn.Module):
         D_out (int): The dimension of the desired predicted quantity.
         hidden (int): The dimension of the hidden state.
     """
-    def __init__(self, batch_size=10, T=10, D_in=2, D_out=1, hidden=100):
+    def __init__(self, batch_size=10, T=10, D_in=2, D_out=1, D_attn=2, hidden=100):
         super(FFAttention, self).__init__()
         # Net Config
         self.T = T
@@ -45,6 +45,7 @@ class FFAttention(torch.nn.Module):
         self.n_features = D_in
         self.out_dim = D_out
         self.hidden = hidden
+        self.attention_dim = D_attn
 
     def embedding(self, x_t):
         """
@@ -66,7 +67,8 @@ class FFAttention(torch.nn.Module):
         Compute the probabilities alpha_t
         """
         softmax = torch.nn.Softmax(dim=1)
-        alphas = softmax(e_t).view(self.batch_size, self.out_dim, self.T)
+        # print(e_t.shape)
+        alphas = softmax(e_t)#.view(self.batch_size, self.attention_dim, self.T)
         return alphas
 
     def context(self, alpha_t, x_t):
@@ -74,7 +76,7 @@ class FFAttention(torch.nn.Module):
         Step 4:
         Compute the context vector c
         """
-        return torch.bmm(alpha_t, x_t)
+        return torch.bmm(alpha_t.view(self.batch_size, self.out_dim, self.T), x_t)
 
     def out(self, c):
         """
@@ -88,9 +90,14 @@ class FFAttention(torch.nn.Module):
         Forward pass for the Feed Forward Attention network.
         """
         self.training = training
-        x = self.embedding(x)
-        x = self.activation(x)
-        alpha = self.attention(x)
-        x = self.context(alpha, x)
-        x = self.out(x)
-        return x, alpha
+        x_e = self.embedding(x)
+        # print(x.shape)
+        x_a = self.activation(x_e)
+        # print(x.shape)
+        alpha = self.attention(x_a)
+        # print(alpha.shape, x_e.shape)
+        # print(x.shape)
+        x_c = self.context(alpha, x_e)
+        # print(x.shape)
+        x_o = self.out(x_c)
+        return x_o, alpha
