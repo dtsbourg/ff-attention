@@ -25,7 +25,9 @@ import joblib
 
 import pandas as pd
 import numpy as np
+
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.metrics import roc_curve, auc
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -38,40 +40,55 @@ from utils import *
 class VPAttention(FFAttention):
     def __init__(self, *args, **kwargs):
         super(VPAttention, self).__init__(*args, **kwargs)
+        ## Encoder
+        # Layer 0a
         self.dropout0a = torch.nn.Dropout(p=0.2)
         self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
+        self.bn0a = torch.nn.BatchNorm1d(self.T)
+        torch.nn.init.xavier_uniform_(self.layer0a.weight)
+        # Layer 0b
         self.dropout0b = torch.nn.Dropout(p=0.2)
         self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
-        #self.dropout0c = torch.nn.Dropout(p=0.2)
-        #self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
+        self.bn0b = torch.nn.BatchNorm1d(self.T)
+        torch.nn.init.xavier_uniform_(self.layer0b.weight)
+        # Layer 0b
+        self.dropout0c = torch.nn.Dropout(p=0.2)
+        self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
+        self.bn0c = torch.nn.BatchNorm1d(self.T)
+        torch.nn.init.xavier_uniform_(self.layer0c.weight)
+
+        ## Decoder
+        # Layer 1
         self.dropout1 = torch.nn.Dropout(p=0.2)
         self.layer1 = torch.nn.Linear(self.hidden, self.out_dim)
+        torch.nn.init.xavier_uniform_(self.layer1.weight)
+        # Layer 2
         self.dropout2 = torch.nn.Dropout(p=0.2)
-        self.layer2 = torch.nn.Linear(self.out_dim, self.hidden)
+        self.layer2 = torch.nn.Linear(self.hidden, self.hidden)
+        self.bn2 = torch.nn.BatchNorm1d(self.out_dim)
+        torch.nn.init.xavier_uniform_(self.layer2.weight)
+        # Out
         self.out_layer = torch.nn.Linear(self.hidden, self.out_dim)
 
     def embedding(self, x_t):
-        x_t = F.leaky_relu(self.layer0a(x_t))
+        x_t = self.bn0a(F.leaky_relu(self.layer0a(x_t)))
         if self.training:
             x_t = self.dropout0a(x_t)
-        # x_t = F.leaky_relu(self.layer0b(x_t))
-        # if self.training:
-        #     x_t = self.dropout0b(x_t)
-        #x_t = F.leaky_relu(self.layer0c(x_t))
-        #if self.training:
-        #    x_t = self.dropout0c(x_t)
+        x_t = self.bn0b(F.leaky_relu(self.layer0b(x_t)))
+        if self.training:
+            x_t = self.dropout0b(x_t)
+        x_t = self.bn0c(F.leaky_relu(self.layer0c(x_t)))
         return x_t
 
     def activation(self, h_t):
-        h_t = F.leaky_relu(self.layer1(h_t))
-        if self.training:
-            h_t = self.dropout1(h_t)
+        h_t = F.sigmoid(self.layer1(h_t))
         return h_t
 
     def out(self, c):
+        #c = c.view(self.batch_size, self.out_dim, self.attention_dim ** 2)
         c = F.leaky_relu(self.layer2(c))
-        if self.training:
-            c = self.dropout2(c)
+        # if self.training:
+        #     c = self.dropout2(c)
         return F.leaky_relu(self.out_layer(c))
 
 class VPSequenceDataset(Dataset):
@@ -102,7 +119,7 @@ def data_loader(cache=True):
         dfpv = pd.DataFrame(np.load(npvs_file))
         vp_occ = list(map(np.array, np.load(VP_file)))
         # Scale
-        scaler_pv = StandardScaler()
+        scaler_pv = MinMaxScaler()
         npvs = scaler_pv.fit_transform(np.asarray(dfpv['EventpRecVertexPrimary']).reshape(-1,1))
         joblib.dump(scaler_pv, SCALER_CACHE)
 
@@ -112,7 +129,7 @@ def data_loader(cache=True):
             dfvp[i] = list(map(float,vp_occ[i]))
         dfvp = dfvp.transpose()
         # Scale
-        scaler_vp = StandardScaler()
+        scaler_vp = MinMaxScaler()
         dfvp = scaler_vp.fit_transform(dfvp)
         vp_module_readouts = np.asarray([module_seperator(_) for _ in dfvp])
 
@@ -126,102 +143,34 @@ def data_loader(cache=True):
 
     return npvs, vp_module_readouts, scaler_pv
 
-def plot_results(logger, scaler_pv, show_results=True):
+def plot_results(logger, scaler, show_results=True):
     if show_results is True:
-        plt.style.use('ggplot')
-        plt.figure(1,figsize=(15,10))
+        # Prepare predictions and Ground Truth for analysis
+        preds_fl = scaler.inverse_transform(logger.attention_state.prediction.reshape(-1, 1))[:,0]
+        gt_fl = np.round(scaler.inverse_transform(logger.attention_state.label.reshape(-1, 1)))[:,0]
+
+        ############################################################
+        # LOSS
+        plt.figure(figsize=(15,10))
         plt.subplot(3,1,1)
-        plt.plot(logger.losses['train'], label='Train')
-        plt.plot(logger.losses['test'], label='Test')
-        plt.title('Loss')
-        plt.legend()
-
+        plot_loss(logger)
+        # Sample Predictions
         plt.subplot(3,1,2)
-
-        preds_fl = scaler_pv.inverse_transform(logger.attention_state.prediction.reshape(-1, 1))
-        gt_fl = np.round(scaler_pv.inverse_transform(logger.attention_state.label.reshape(-1, 1)))
-
-        sample = 200
-
-        plt.bar(range(sample), preds_fl[:sample,0], alpha=0.5, label='Predicted', color='b')
-        #plt.bar(range(200), np.round(preds_fl[:200,0]), alpha=0.5, label='Rounded', color='g')
-        plt.bar(range(sample), gt_fl[:sample,0], alpha=0.5, label='Truth', color='r')
-        plt.title('Sample predictions')
-        plt.legend()
-
+        plot_predictions(y_true=gt_fl, y_pred=preds_fl, scaler=scaler_pv, sample=200)
+        # Error distribution
         plt.subplot(3,1,3)
-        errs = np.subtract(gt_fl, preds_fl)
-        errs_rounded = np.subtract(gt_fl, np.round(preds_fl))
+        plot_error(y_true=gt_fl, y_pred=preds_fl, rounded=True)
 
-        plt.hist(errs, label='Regression Error', alpha=0.5)
-        plt.hist(errs_rounded, label='Rounded Error', alpha=0.5)
-        mu_str = str(np.around(np.mean(errs),2)); std_str = str(np.around(np.std(errs),2));
-        mu_rd_str = str(np.around(np.mean(errs_rounded),2)); std_rd_str = str(np.around(np.std(errs_rounded),2));
-        plt.title('Error distribution ($\mu$='+mu_str+'; $\sigma$='+std_str+')'+'($\mu_{r}$='+mu_rd_str+'; $\sigma_{r}$='+std_rd_str+')')
-        plt.legend()
+        ############################################################
+        # ATTENTION
+        plot_attention(logger, y_true=gt_fl, y_pred=preds_fl)
 
-        common_colorscale = False
-        n = 10; start_idx = 10;
-        fig = plt.figure(2,figsize=(10,n+1))
-        cax = fig.add_axes([0.2, 0.08, 0.6, 0.04])
-        images = []
-        vmin = 1e40
-        vmax = -1e40
+        ############################################################
+        # CONFUSION
+        plot_confusion(y_true=gt_fl, y_pred=preds_fl)
 
-        for i in range(n):
-            sequence = pd.DataFrame(logger.attention_state.inputs[i+start_idx].tolist())
-            attscaler = MinMaxScaler(feature_range=(np.min(np.min(sequence)),np.max(np.max(sequence))))
-            sequence['attention'] = logger.attention_state.alphas[i+start_idx][0].tolist()
-            sequence['attention'] = attscaler.fit_transform(sequence['attention'].values.reshape(-1,1))
-
-            plt.subplot(n,1,i+1)
-
-            predval = np.round(preds_fl[i+start_idx][0])
-            gtval = np.round(gt_fl[i+start_idx][0])
-            plt.title('Attention map for sequence #'+str(i+start_idx)+'; pred=' + str(int(predval))+'; gt='+str(int(gtval)))
-
-            from numpy import amin, amax, ravel
-            dd = ravel(sequence)
-            # Manually find the min and max of all colors for
-            # use in setting the color scale.
-            vmin = min(vmin, amin(dd))
-            vmax = max(vmax, amax(dd))
-            images.append(plt.imshow(sequence.transpose(), interpolation='nearest'))
-
-            plt.grid()
-            plt.yticks([0,1,2,3,4], ['Sensor #1', 'Sensor #2', 'Sensor #3', 'Sensor #4', 'Attention'])
-            plt.colorbar(aspect=5)
-
-        if common_colorscale is True:
-            norm = colors.Normalize(vmin=vmin, vmax=vmax)
-            for i, im in enumerate(images):
-                im.set_norm(norm)
-                if i > 0:
-                    images[0].callbacksSM.connect('changed', ImageFollower(im))
-
-        plt.tight_layout()
-
-        df = pd.DataFrame(list(zip(preds_fl[:,0],gt_fl[:,0])), columns=['preds', 'gt'])
-        #sns.jointplot("preds", "gt", data=df, kind='kde')
-        g = sns.JointGrid(x="preds", y="gt", data=df)
-        g.plot_joint(sns.regplot, order=2)
-        g.plot_marginals(sns.distplot)
-
-        plt.tight_layout()
         plt.show()
-
-class ImageFollower(object):
-    'update image in response to changes in clim or cmap on another image'
-
-    def __init__(self, follower):
-        self.follower = follower
-
-    def __call__(self, leader):
-        self.follower.set_cmap(leader.get_cmap())
-        self.follower.set_clim(leader.get_clim())
-
-from matplotlib import cm, colors
-from matplotlib.pyplot import sci
+        plt.tight_layout()
 
 def main():
     """
@@ -229,40 +178,38 @@ def main():
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     logger = AttentionLog()
-    npvs, vp_module_readouts, scaler_pv = data_loader()
+    npvs, vp_module_readouts, scaler_pv = data_loader(cache=True)
 
     # Config
-    load_model = False
-    uid = '2018-06-11-17-44-(104_2k5eps)_test_fix'
+    load_model = True
+    uid = '2018-06-11-17-44_test_fix'
     MODEL_PATH = 'models/vppv_model_best_epoch' + uid + '.pth'
 
-    epoch_num = 2                    # Number of epochs to train the network
+    epoch_num = 200                     # Number of epochs to train the network
     batch_size = 100                    # Number of samples in each batch
-    lr = 0.001                          # Learning rate
-    n_seqs = 1000                       # number of sequences == number of samples
+    lr = 0.001                         # Learning rate
+    n_seqs = 2000                       # number of sequences == number of samples
     T = vp_module_readouts.shape[1]     # Sequence length == number of modules in our case
     D_in = vp_module_readouts.shape[2]  # 4 modules per sensor
     D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
     D_hidden = 104                      # Hidden dimension
+    D_attn = 2                          # Dimension the attention vector
 
     tt_ratio = .5
     train_idx = np.random.uniform(0, 1, len(npvs)) <= tt_ratio
     n_train = int(n_seqs * tt_ratio)
     n_test = int(n_seqs * (1-tt_ratio))
 
-    # Subsample data
-    # npvs = npvs[:n_seqs]
-    # vp_module_readouts = vp_module_readouts[:n_seqs,:]
-
     # Create or load the model
-    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=D_out, hidden=D_hidden)
+    model = VPAttention(batch_size=batch_size, T=T, D_in=D_in, D_out=D_out, D_attn=D_attn, hidden=D_hidden)
     if load_model is True:
         checkpoint = torch.load(MODEL_PATH)
         model.load_state_dict(checkpoint['state_dict'])
 
     # Using the details from the paper [1] for optimizer
     criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999), weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(.9,.999), weight_decay=1e-3)
+
     if load_model is True:
         optimizer.load_state_dict(checkpoint['optimizer'])
 
@@ -335,9 +282,9 @@ def main():
             logger.best_epoch = ep
             logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
             save_state = {
-            'epoch': ep,
-            'state_dict': model.state_dict(),
-            'optimizer' : optimizer.state_dict(),
+                'epoch': ep,
+                'state_dict': model.state_dict(),
+                'optimizer' : optimizer.state_dict(),
             }
 
             torch.save(save_state, MODEL_PATH)
@@ -360,6 +307,11 @@ def main():
 
         logger.losses['test'].append(np.mean(batch_losses))
         logger.attention_state = AttentionState(alphas=alphas, inputs=features, label=flatten(label_log), prediction=flatten(outputs))
+    else:
+        print("=== Best epoch:")
+        print("Epoch #", logger.best_epoch)
+        print("Test Loss = ", logger.losses['test'][best_ep])
+        print("Train Loss = ", logger.losses['train'][best_ep])
 
     return logger
 
