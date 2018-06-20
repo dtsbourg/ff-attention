@@ -11,10 +11,31 @@ This is based on work by Colin Raffel and Daniel P. Ellis, *Feed-Forward Network
 The main class has been implemented as the `FFAttention` class. You can subclass this to use in your own problems. The learning is done sequentially, with five methods forming the `forward` pass of the algorithm. You will need to implement some of them.
 
 1. `embedding` (*not implemented*) : computes embeddings $$h_t$$ for element of sequence $$x_t$$. 
-2. `activation` (*not implemented*) : computes the embedding activations $$e_t$$.
-3. `attention` (*Already implemented*) : computes the probabilities $$\alpha_t$$.
-4. `context` (*Already implemented*) : computes the context vector $c$.
-5. `out` (*not implemented*) : Feed-forward prediction.
+
+>     In : torch.Size([batch_size, sequence_length, sequence_dim])
+>     Out: torch.Size([batch_size, sequence_length, hidden_dimensions])
+
+1. `activation` (*not implemented*) : computes the embedding activations $$e_t$$.
+
+>     In : torch.Size([batch_size, sequence_length, hidden_dimensions])
+>     Out: torch.Size([batch_size, sequence_length, 1])
+
+1. `attention` (*Already implemented*) : computes the probabilities $$\alpha_t$$.
+
+> ```
+> In : torch.Size([batch_size, sequence_length, 1])
+> Out: torch.Size([batch_size, sequence_length, 1])
+> ```
+
+1. `context` (*Already implemented*) : computes the context vector $c$.
+
+>     In : torch.Size([batch_size, sequence_length, 1]), torch.Size([batch_size, sequence_length, sequence_dim])
+>     Out: torch.Size([batch_size, 1, hidden_dimensions])
+
+1. `out` (*not implemented*) : Feed-forward prediction.
+
+>     In : torch.Size([batch_size, 1, hidden_dimensions])
+>     Out: torch.Size([batch_size, 1, 1])
 
 Note that you can reimplement or extend any of the other methods, for logging purposes for example.
 
