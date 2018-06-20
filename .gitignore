@@ -3,3 +3,4 @@
 *.dump
 *.DS_Store
 *.pth
+*.pkl
