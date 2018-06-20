@@ -82,7 +82,7 @@ def plot_error(y_true, y_pred, rounded=False):
     plt.title(title_str)
     plt.legend()
 
-def plot_attention(logger, y_true, y_pred, shared_colorscale=False, n_seq=8, start_idx=0):
+def plot_attention(logger, y_true, y_pred, shared_colorscale=False, n_seq=8, start_idx=0, context=False):
     fig = plt.figure(figsize=(10,n_seq+1))
     images = []; vmin = 1e40; vmax = -1e40
     attn_dim = logger.attention_state.alphas.shape[2]
@@ -126,3 +126,20 @@ def plot_confusion(y_true, y_pred):
     g = sns.JointGrid(x="preds", y="gt", data=df)
     g.plot_joint(sns.regplot, order=2)
     g.plot_marginals(sns.distplot)
+
+def plot_context(logger, y_true, y_pred, dr=False):
+    from sklearn.manifold import TSNE
+    from sklearn.decomposition import PCA
+
+    plt.figure()
+    if dr:
+        ce_tsne = TSNE(n_components=2, perplexity=10).fit_transform(logger.attention_state.context_embedding.detach().numpy())
+        plt.scatter(ce_tsne[:,0], ce_tsne[:,1], c=gt_fl[:n_samples])
+        plt.colorbar()
+    else:
+        n = 50
+        cnt = logger.attention_state.context_embedding[:n,:].detach().numpy()
+        idx = np.argsort(y_true[:n])
+        plt.imshow(cnt[idx])
+        plt.grid()
+        plt.yticks(range(n), np.sort(y_true[:n]))

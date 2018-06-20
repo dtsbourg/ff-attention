@@ -48,11 +48,11 @@ class VPAttention(FFAttention):
         self.layer0a = torch.nn.Linear(self.n_features, self.hidden)
         self.bn0a = torch.nn.BatchNorm1d(self.T)
         torch.nn.init.xavier_uniform_(self.layer0a.weight)
-        # # Layer 0b
-        # self.dropout0b = torch.nn.Dropout(p=0.2)
-        # self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
-        # self.bn0b = torch.nn.BatchNorm1d(self.T)
-        # torch.nn.init.xavier_uniform_(self.layer0b.weight)
+        # Layer 0b
+        self.dropout0b = torch.nn.Dropout(p=0.2)
+        self.layer0b = torch.nn.Linear(self.hidden, self.hidden)
+        self.bn0b = torch.nn.BatchNorm1d(self.T)
+        torch.nn.init.xavier_uniform_(self.layer0b.weight)
         # # Layer 0c
         # self.dropout0c = torch.nn.Dropout(p=0.2)
         # self.layer0c = torch.nn.Linear(self.hidden, self.hidden)
@@ -85,9 +85,9 @@ class VPAttention(FFAttention):
         x_t = self.bn0a(F.leaky_relu(self.layer0a(x_t)))
         if self.training:
             x_t = self.dropout0a(x_t)
-        # x_t = self.bn0b(F.leaky_relu(self.layer0b(x_t)))
-        # if self.training:
-        #     x_t = self.dropout0b(x_t)
+        x_t = self.bn0b(F.leaky_relu(self.layer0b(x_t)))
+        if self.training:
+            x_t = self.dropout0b(x_t)
         # x_t = self.bn0c(F.leaky_relu(self.layer0c(x_t)))
         return x_t
 
@@ -171,7 +171,7 @@ def plot_results(logger, scaler, show_results=True):
         # Prepare predictions and Ground Truth for analysis
         preds_fl = scaler.inverse_transform(logger.attention_state.prediction.reshape(-1, 1))[:,0]
         gt_fl = np.round(scaler.inverse_transform(logger.attention_state.label.reshape(-1, 1)))[:,0]
-        n_samples = 200
+        n_samples = 500
         ############################################################
         # LOSS
         plt.figure(figsize=(15,10))
@@ -186,7 +186,7 @@ def plot_results(logger, scaler, show_results=True):
 
         ############################################################
         # ATTENTION
-        plot_attention(logger, y_true=gt_fl, y_pred=preds_fl)
+        plot_attention(logger, y_true=gt_fl, y_pred=preds_fl, context=True)
 
         ############################################################
         # CONFUSION
@@ -194,13 +194,8 @@ def plot_results(logger, scaler, show_results=True):
 
         ############################################################
         # CONTEXT EMBEDDING
-        plt.figure()
-        from sklearn.manifold import TSNE
-        from sklearn.decomposition import PCA
-        ce_tsne = TSNE(n_components=2, perplexity=100).fit_transform(logger.attention_state.context_embedding.detach().numpy())
-        plt.scatter(ce_tsne[:,0], ce_tsne[:,1], c=gt_fl[:n_samples])
-        plt.colorbar()
-
+        plot_context(logger, y_true=gt_fl, y_pred=preds_fl)
+        
         plt.show()
         plt.tight_layout()
 
@@ -213,19 +208,19 @@ def main():
     npvs, vp_module_readouts, scaler_pv = data_loader(cache=True)
 
     # Config
-    load_model = False
+    load_model = True
     uid = '2018-06-19-14-34'
     MODEL_PATH = 'models/vppv_model_best_epoch' + uid + '.pth'
 
     epoch_num = 100                     # Number of epochs to train the network
-    batch_size = 200                    # Number of samples in each batch
+    batch_size = 500                    # Number of samples in each batch
     lr = 0.001                          # Learning rate
-    n_seqs = 2000                       # number of sequences == number of samples
+    n_seqs = 9000                       # number of sequences == number of samples
     T = vp_module_readouts.shape[1]     # Sequence length == number of modules in our case
     D_in = vp_module_readouts.shape[2]  # 4 modules per sensor
     D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
     D_hidden = 104                      # Hidden dimension
-    tt_ratio = .5
+    tt_ratio = .75
     train_idx = np.random.uniform(0, 1, len(npvs)) <= tt_ratio
     n_train = int(n_seqs * tt_ratio)
     n_test = int(n_seqs * (1-tt_ratio))
@@ -326,6 +321,8 @@ def main():
     if load_model is True:
         batch_losses = []; outputs = []; attention = []; label_log = [];
         for batch_idx, data in enumerate(test_seq_dataset_loader):
+            if batch_idx == batch_per_ep_te - 1:
+                break
             features, labels = data
             output, alphas = model(features, training=False)
 
@@ -336,8 +333,7 @@ def main():
             loss = criterion(output.view(-1,1), labels.view(-1,1).float())
             batch_losses.append(loss.data.item())
 
-            if batch_idx == batch_per_ep_te - 1:
-                break
+
 
         logger.losses['test'].append(np.mean(batch_losses))
         logger.attention_state = AttentionState(alphas=alphas,
