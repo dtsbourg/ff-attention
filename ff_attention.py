@@ -50,6 +50,9 @@ class FFAttention(torch.nn.Module):
         """
         Step 1:
         Compute embeddings h_t for element of sequence x_t
+
+        In : torch.Size([batch_size, sequence_length, sequence_dim])
+        Out: torch.Size([batch_size, sequence_length, hidden_dimensions])
         """
         raise NotImplementedError
 
@@ -57,6 +60,9 @@ class FFAttention(torch.nn.Module):
         """
         Step 2:
         Compute the embedding activations e_t
+
+        In : torch.Size([batch_size, sequence_length, hidden_dimensions])
+        Out: torch.Size([batch_size, sequence_length, 1])
         """
         raise NotImplementedError
 
@@ -64,6 +70,9 @@ class FFAttention(torch.nn.Module):
         """
         Step 3:
         Compute the probabilities alpha_t
+
+        In : torch.Size([batch_size, sequence_length, 1])
+        Out: torch.Size([batch_size, sequence_length, 1])
         """
         softmax = torch.nn.Softmax(dim=1)
         alphas = softmax(e_t)
@@ -73,6 +82,9 @@ class FFAttention(torch.nn.Module):
         """
         Step 4:
         Compute the context vector c
+
+        In : torch.Size([batch_size, sequence_length, 1]), torch.Size([batch_size, sequence_length, sequence_dim])
+        Out: torch.Size([batch_size, 1, hidden_dimensions])
         """
         return torch.bmm(alpha_t.view(self.batch_size, self.out_dim, self.T), x_t)
 
@@ -80,6 +92,9 @@ class FFAttention(torch.nn.Module):
         """
         Step 5:
         Feed-forward prediction based on c
+
+        In : torch.Size([batch_size, 1, hidden_dimensions])
+        Out: torch.Size([batch_size, 1, 1])
         """
         raise NotImplementedError
 
@@ -90,7 +105,11 @@ class FFAttention(torch.nn.Module):
         self.training = training
         x_e = self.embedding(x)
         x_a = self.activation(x_e)
+        print(x_a.shape)
         alpha = self.attention(x_a)
+        print(alpha.shape)
         x_c = self.context(alpha, x_e)
+        print(x_c.shape)
         x_o = self.out(x_c)
+        print(x_o.shape)
         return x_o, alpha

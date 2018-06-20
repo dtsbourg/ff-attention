@@ -140,6 +140,10 @@ def plot_context(logger, y_true, y_pred, dr=False):
         n = 50
         cnt = logger.attention_state.context_embedding[:n,:].detach().numpy()
         idx = np.argsort(y_true[:n])
+        plt.title('Sorted Context embeddings')
         plt.imshow(cnt[idx])
         plt.grid()
-        plt.yticks(range(n), np.sort(y_true[:n]))
+        y_str = ['{} - {}'.format(int(y_true[i]), np.round(y_pred[i],2)) for i in idx]
+        plt.yticks(range(n), y_str)
+        plt.ylabel('Ground Truth - Pred #PV')
+        plt.colorbar()
