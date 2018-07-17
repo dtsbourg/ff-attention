@@ -105,11 +105,7 @@ class FFAttention(torch.nn.Module):
         self.training = training
         x_e = self.embedding(x)
         x_a = self.activation(x_e)
-        print(x_a.shape)
         alpha = self.attention(x_a)
-        print(alpha.shape)
         x_c = self.context(alpha, x_e)
-        print(x_c.shape)
         x_o = self.out(x_c)
-        print(x_o.shape)
         return x_o, alpha
