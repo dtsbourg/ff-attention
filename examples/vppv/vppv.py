@@ -129,13 +129,13 @@ class VPSequenceDataset(Dataset):
 
 def data_loader(cache=True):
     # Cache config
-    NPVS_CACHE = 'cache/npvs.dump'
-    VP_CACHE = 'cache/vp_module_readouts.dump'
-    SCALER_CACHE = 'cache/scaler_pv.dump'
+    NPVS_CACHE = 'cache/npvs_50.dump'
+    VP_CACHE = 'cache/vp_module_readouts_50.dump'
+    SCALER_CACHE = 'cache/scaler_pv_50.dump'
     # Raw Bank Sizes (incl. number of PVs)
-    npvs_file  = 'data/minbias10.npy'
+    npvs_file  = 'data/minbias50.npy'
     # Contains the occupancies for every VP sensor
-    VP_file  = 'data/VP_occupancies_minbias10.npy'
+    VP_file  = 'data/VP_occupancies_minbias_50.npy'
 
     if cache == False:
         # Load PVs
@@ -179,7 +179,7 @@ def plot_results(logger, scaler, show_results=True):
         plot_loss(logger)
         # Sample Predictions
         plt.subplot(3,1,2)
-        plot_predictions(y_true=gt_fl, y_pred=preds_fl, scaler=scaler_pv, sample=n_samples)
+        plot_predictions(y_true=gt_fl, y_pred=preds_fl, scaler=scaler_pv, sample=n_samples // 2)
         # Error distribution
         plt.subplot(3,1,3)
         plot_error(y_true=gt_fl, y_pred=preds_fl, rounded=True)
@@ -190,12 +190,12 @@ def plot_results(logger, scaler, show_results=True):
 
         ############################################################
         # CONFUSION
-        plot_confusion(y_true=gt_fl, y_pred=preds_fl)
+        #plot_confusion(y_true=gt_fl, y_pred=preds_fl)
 
         ############################################################
         # CONTEXT EMBEDDING
         plot_context(logger, y_true=gt_fl, y_pred=preds_fl)
-        
+
         plt.show()
         plt.tight_layout()
 
@@ -205,17 +205,17 @@ def main():
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     logger = AttentionLog()
-    npvs, vp_module_readouts, scaler_pv = data_loader(cache=True)
+    npvs, vp_module_readouts, scaler_pv = data_loader(cache=False)
 
     # Config
-    load_model = True
-    uid = '2018-06-19-14-34'
+    load_model = False
+    uid = '2018-06-26-14-34_50'
     MODEL_PATH = 'models/vppv_model_best_epoch' + uid + '.pth'
-
-    epoch_num = 100                     # Number of epochs to train the network
+    print(len(npvs))
+    epoch_num = 50                     # Number of epochs to train the network
     batch_size = 500                    # Number of samples in each batch
     lr = 0.001                          # Learning rate
-    n_seqs = 9000                       # number of sequences == number of samples
+    n_seqs = 25000                       # number of sequences == number of samples
     T = vp_module_readouts.shape[1]     # Sequence length == number of modules in our case
     D_in = vp_module_readouts.shape[2]  # 4 modules per sensor
     D_out = npvs.shape[1]               # Dimension of value to predict (1 here)
