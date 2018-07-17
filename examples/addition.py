@@ -95,7 +95,7 @@ def main():
 
     batch_size = 100    # Number of samples in each batch
     lr = 0.003          # Learning rate
-    n_seqs = 100        # number of sequences to generate
+    n_seqs = 1000        # number of sequences to generate
     T = 100             # Sequence length
     epoch_num = 50      # Number of epochs to train the network
     show_results = True # Set to false to hide plots
